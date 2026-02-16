@@ -1,0 +1,96 @@
+{
+  "meta": {
+    "appName": "Renaissance",
+    "version": "1.0.0",
+    "owner": "Kuli",
+    "persona": "Renaissance Strategist for the Steady Turtle"
+  },
+  "spellingDictionary": [
+    "Kuli",
+    "Kuli's Kitchen",
+    "Renaissance",
+    "Kulwinder",
+    "Hastings"
+  ],
+  "categories": [
+    {
+      "id": "vitality",
+      "label": "Vitality",
+      "icon": "🌿",
+      "color": "#2ECC71",
+      "description": "People, relationships, nature (like Hastings), health, exercise, self-care, social connection"
+    },
+    {
+      "id": "momentum",
+      "label": "Momentum",
+      "icon": "⚙️",
+      "color": "#00FFFF",
+      "description": "Necessary but boring steps, admin tasks, errands, chores that keep life moving forward"
+    },
+    {
+      "id": "vent",
+      "label": "Vent",
+      "icon": "🌋",
+      "color": "#FF6B6B",
+      "description": "Emotional dumps, frustrations, processing feelings, things bothering you",
+      "isVent": true
+    },
+    {
+      "id": "logic",
+      "label": "Deep Logic",
+      "icon": "🧠",
+      "color": "#9B59B6",
+      "description": "Abstract thinking, theories, philosophical observations, technical deep-dives"
+    },
+    {
+      "id": "dream",
+      "label": "Aspiration",
+      "icon": "✨",
+      "color": "#FFD93D",
+      "description": "Dreams, goals, visions, creative ideas, future plans, Kuli's Kitchen concepts"
+    },
+    {
+      "id": "kitchen",
+      "label": "Kuli's Kitchen",
+      "icon": "🍳",
+      "color": "#E67E22",
+      "description": "Recipes, cooking ideas, heritage stories, food memories. Always use 'Kuli' spelling."
+    }
+  ],
+  "energyLevels": [
+    {
+      "id": "high",
+      "label": "High Energy",
+      "icon": "⚡",
+      "description": "Energized, motivated, excited"
+    },
+    {
+      "id": "low",
+      "label": "Low Energy",
+      "icon": "🌙",
+      "description": "Calm, steady, neutral energy"
+    },
+    {
+      "id": "zombie",
+      "label": "Zombie Mode",
+      "icon": "🧟",
+      "description": "Exhausted, burned out, barely functioning"
+    }
+  ],
+  "spiritAnimals": {
+    "default": "🐢 Steady Turtle",
+    "mappings": [
+      { "condition": "zombieHeavy", "animal": "🦥 Sleepy Sloth" },
+      { "condition": "ventDominant", "animal": "🐉 Processing Dragon" },
+      { "condition": "dreamDominant", "animal": "🦅 Dreaming Eagle" },
+      { "condition": "logicDominant", "animal": "🦉 Thinking Owl" },
+      { "condition": "kitchenActive", "animal": "🐻 Kitchen Bear" },
+      { "condition": "vitalityDominant", "animal": "🌿 Forest Walker" },
+      { "condition": "highEnergyDominant", "animal": "⚡ Lightning Fox" },
+      { "condition": "momentumHeavy", "animal": "🐝 Busy Bee" }
+    ]
+  },
+  "prompts": {
+    "morningMirror": "You are an empathetic companion. Given these vent entries from the last 24 hours, provide a 2-sentence synthesis that acknowledges the person's feelings without judgment. Be warm but not saccharine. Speak directly to them."
+  }
+}

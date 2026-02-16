@@ -31,7 +31,12 @@ yarn-error.*
 *.pem
 
 # local env files
-.env*.local
+# CRITICAL: Prevent API Key Leaks
+.env
+.env.*
+!.env.example
+service-account-key.json
+*.json.key
 
 # typescript
 *.tsbuildinfo
