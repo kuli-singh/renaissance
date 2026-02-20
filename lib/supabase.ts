@@ -17,6 +17,14 @@ export const supabase = createClient(SUPABASE_URL, SUPABASE_ANON_KEY, {
   },
 });
 
+export interface Commitment {
+  id: string;
+  thought_id: string;
+  status: 'open' | 'completed' | 'abandoned';
+  reasoning?: string;
+  created_at: string;
+}
+
 export interface Entry {
   id: string;
   title: string;
@@ -190,6 +198,56 @@ export async function fetchYesterdaysVents(): Promise<Entry[]> {
 
   return data || [];
 }
+
+// ── Commitments ──────────────────────────────────────────────────────────────
+
+export async function fetchCommitments(): Promise<Commitment[]> {
+  const { data, error } = await supabase
+    .from('commitments')
+    .select('*')
+    .order('created_at', { ascending: true });
+
+  if (error) {
+    console.error('Error fetching commitments:', error.message);
+    return [];
+  }
+  return data || [];
+}
+
+export async function createCommitment(
+  thoughtId: string,
+  reasoning?: string
+): Promise<Commitment | null> {
+  const { data, error } = await supabase
+    .from('commitments')
+    .insert([{ thought_id: thoughtId, status: 'open', reasoning: reasoning || null }])
+    .select()
+    .single();
+
+  if (error) {
+    console.error('Error creating commitment:', error.message);
+    return null;
+  }
+  return data;
+}
+
+export async function updateCommitmentStatus(
+  id: string,
+  status: 'open' | 'completed' | 'abandoned'
+): Promise<boolean> {
+  const { error } = await supabase
+    .from('commitments')
+    .update({ status })
+    .eq('id', id);
+
+  if (error) {
+    console.error('Error updating commitment:', error.message);
+    return false;
+  }
+  return true;
+}
+
+// ── Spirit Animal ─────────────────────────────────────────────────────────────
 
 export async function getTodaysSpiritAnimal(): Promise<string> {
   const today = new Date().toISOString().split('T')[0];

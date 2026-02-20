@@ -18,11 +18,21 @@ import {
 import { transcribeAudio, processThought, generateDailyMirror, renaissanceConfig } from './lib/openai';
 import {
   Entry,
+  Commitment,
   fetchEntries,
   insertThought,
   getTodaysSpiritAnimal,
   fetchYesterdaysVents,
+  fetchCommitments,
+  createCommitment,
+  updateCommitmentStatus,
 } from './lib/supabase';
+
+// Fix voice-to-text name errors in display
+const fixName = (text?: string | null): string => {
+  if (!text) return '';
+  return text.replace(/\bBooper\b/gi, 'BUPA');
+};
 
 interface AnimatedEntry extends Entry {
   glowAnim: Animated.Value;
@@ -110,6 +120,8 @@ export default function App() {
   const [isMirrorCollapsed, setIsMirrorCollapsed] = useState(true);
   const [bottleneck, setBottleneck] = useState<string | null>(null);
   const [showBottleneckBanner, setShowBottleneckBanner] = useState(true);
+  // commitmentMap: keyed by thought_id for O(1) lookups in render
+  const [commitmentMap, setCommitmentMap] = useState<Record<string, Commitment>>({});
   const pulseAnim = useRef(new Animated.Value(1)).current;
   const recordingAnim = useRef(new Animated.Value(1)).current;
   const processingAnim = useRef(new Animated.Value(1)).current;
@@ -117,10 +129,16 @@ export default function App() {
 
   const loadData = useCallback(async () => {
     try {
-      const [fetchedEntries, animal] = await Promise.all([
+      const [fetchedEntries, animal, commitments] = await Promise.all([
         fetchEntries(),
         getTodaysSpiritAnimal(),
+        fetchCommitments(),
       ]);
+
+      // Build a map for fast lookups: thought_id → Commitment
+      const cMap: Record<string, Commitment> = {};
+      commitments.forEach(c => { cMap[c.thought_id] = c; });
+      setCommitmentMap(cMap);
 
       const animatedEntries: AnimatedEntry[] = fetchedEntries.map((entry) => ({
         ...entry,
@@ -455,12 +473,15 @@ export default function App() {
   const renderEntry = ({ item }: { item: AnimatedEntry }) => {
     const typeColor = TYPE_COLORS[item.type] || '#00FFFF';
     const typeIcon = TYPE_ICONS[item.type] || '●';
+    const commitment = commitmentMap[item.id];
 
     return (
       <TouchableOpacity onPress={() => openDetail(item)} activeOpacity={0.7}>
         <Animated.View
           style={[
             styles.entryItem,
+            commitment?.status === 'open' && styles.entryItemOpen,
+            commitment?.status === 'completed' && styles.entryItemDone,
             {
               opacity: item.slideAnim,
               transform: [
@@ -494,16 +515,51 @@ export default function App() {
             <Text style={styles.entryDotIcon}>{typeIcon}</Text>
           </View>
           <View style={styles.entryContent}>
-            <Text style={styles.entryText}>{item.title}</Text>
+            <Text style={styles.entryText}>{fixName(item.title)}</Text>
             <View style={styles.entryMeta}>
               <Text style={[styles.entryType, { color: typeColor }]}>{item.type}</Text>
               <Text style={styles.entryEnergy}>{ENERGY_ICONS[item.energy] || '●'}</Text>
+              {commitment && (
+                <View style={[
+                  styles.commitmentBadge,
+                  commitment.status === 'open' && styles.commitmentBadgeOpen,
+                  commitment.status === 'completed' && styles.commitmentBadgeDone,
+                  commitment.status === 'abandoned' && styles.commitmentBadgeAbandoned,
+                ]}>
+                  <Text style={styles.commitmentBadgeText}>
+                    {commitment.status === 'open' ? '📋 OPEN' :
+                     commitment.status === 'completed' ? '✅ DONE' : '🗑 DROPPED'}
+                  </Text>
+                </View>
+              )}
             </View>
           </View>
           <Text style={styles.entryArrow}>›</Text>
         </Animated.View>
       </TouchableOpacity>
     );
+  };
+
+  const handleCommitToggle = async (entry: AnimatedEntry) => {
+    const existing = commitmentMap[entry.id];
+    if (existing) {
+      // Cycle: open → completed → abandoned → open
+      const next = existing.status === 'open' ? 'completed'
+                 : existing.status === 'completed' ? 'abandoned'
+                 : 'open';
+      const ok = await updateCommitmentStatus(existing.id, next);
+      if (ok) {
+        setCommitmentMap(prev => ({ ...prev, [entry.id]: { ...existing, status: next } }));
+        Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+      }
+    } else {
+      // Create new commitment
+      const created = await createCommitment(entry.id);
+      if (created) {
+        setCommitmentMap(prev => ({ ...prev, [entry.id]: created }));
+        Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+      }
+    }
   };
 
   const renderDetailModal = () => {
@@ -517,6 +573,8 @@ export default function App() {
     const isDream = selectedEntry.type === 'dream';
     const isLogic = selectedEntry.type === 'logic';
     const isKitchen = selectedEntry.type === 'kitchen';
+
+    const commitment = commitmentMap[selectedEntry.id];
 
     // Cast to any to access all possible column names from Supabase
     const entry = selectedEntry as any;
@@ -562,7 +620,7 @@ export default function App() {
 
             {/* Title */}
             <Text style={[styles.modalTitle, { color: typeColor }]}>
-              {selectedEntry.title}
+              {fixName(selectedEntry.title)}
             </Text>
 
             {/* Meta info */}
@@ -577,6 +635,79 @@ export default function App() {
 
             {/* Divider */}
             <View style={[styles.modalDivider, { backgroundColor: typeColor }]} />
+
+            {/* Commitment Toggle */}
+            <View style={styles.commitmentPanel}>
+              {!commitment ? (
+                <TouchableOpacity
+                  style={styles.commitButton}
+                  onPress={() => handleCommitToggle(selectedEntry)}
+                >
+                  <Text style={styles.commitButtonText}>📋  Make this a Commitment</Text>
+                </TouchableOpacity>
+              ) : (
+                <View style={styles.commitmentStatus}>
+                  <View style={[
+                    styles.commitmentStatusBadge,
+                    commitment.status === 'open' && { backgroundColor: 'rgba(255, 165, 0, 0.15)', borderColor: '#FFA500' },
+                    commitment.status === 'completed' && { backgroundColor: 'rgba(46, 204, 113, 0.15)', borderColor: '#2ECC71' },
+                    commitment.status === 'abandoned' && { backgroundColor: 'rgba(100, 100, 100, 0.15)', borderColor: '#666666' },
+                  ]}>
+                    <Text style={[
+                      styles.commitmentStatusText,
+                      commitment.status === 'open' && { color: '#FFA500' },
+                      commitment.status === 'completed' && { color: '#2ECC71' },
+                      commitment.status === 'abandoned' && { color: '#666666' },
+                    ]}>
+                      {commitment.status === 'open' ? '📋 Open Commitment'
+                       : commitment.status === 'completed' ? '✅ Completed'
+                       : '🗑 Dropped'}
+                    </Text>
+                  </View>
+                  <View style={styles.commitmentActions}>
+                    {commitment.status !== 'completed' && (
+                      <TouchableOpacity
+                        style={[styles.commitActionBtn, { borderColor: '#2ECC71' }]}
+                        onPress={async () => {
+                          await updateCommitmentStatus(commitment.id, 'completed');
+                          setCommitmentMap(prev => ({ ...prev, [selectedEntry.id]: { ...commitment, status: 'completed' } }));
+                          Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+                        }}
+                      >
+                        <Text style={[styles.commitActionText, { color: '#2ECC71' }]}>✅ Done</Text>
+                      </TouchableOpacity>
+                    )}
+                    {commitment.status !== 'abandoned' && (
+                      <TouchableOpacity
+                        style={[styles.commitActionBtn, { borderColor: '#666666' }]}
+                        onPress={async () => {
+                          await updateCommitmentStatus(commitment.id, 'abandoned');
+                          setCommitmentMap(prev => ({ ...prev, [selectedEntry.id]: { ...commitment, status: 'abandoned' } }));
+                          Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+                        }}
+                      >
+                        <Text style={[styles.commitActionText, { color: '#666666' }]}>🗑 Drop</Text>
+                      </TouchableOpacity>
+                    )}
+                    {commitment.status !== 'open' && (
+                      <TouchableOpacity
+                        style={[styles.commitActionBtn, { borderColor: '#FFA500' }]}
+                        onPress={async () => {
+                          await updateCommitmentStatus(commitment.id, 'open');
+                          setCommitmentMap(prev => ({ ...prev, [selectedEntry.id]: { ...commitment, status: 'open' } }));
+                          Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+                        }}
+                      >
+                        <Text style={[styles.commitActionText, { color: '#FFA500' }]}>↩ Reopen</Text>
+                      </TouchableOpacity>
+                    )}
+                  </View>
+                  {commitment.reasoning && (
+                    <Text style={styles.commitmentReasoning}>"{commitment.reasoning}"</Text>
+                  )}
+                </View>
+              )}
+            </View>
 
             {/* Content */}
             <ScrollView style={styles.modalScrollView} showsVerticalScrollIndicator={true}>
@@ -614,7 +745,7 @@ export default function App() {
                     isDream && styles.dreamVisionText,
                     isKitchen && styles.kitchenText,
                   ]}>
-                    {spokenText ? `"${spokenText}"` : "No transcription captured"}
+                    {spokenText ? `"${fixName(spokenText)}"` : "No transcription captured"}
                   </Text>
                 </View>
 
@@ -1479,6 +1610,94 @@ const styles = StyleSheet.create({
     letterSpacing: 0.3,
     textAlign: 'center',
     marginTop: 10,
+  },
+
+  // ── Commitment styles ──────────────────────────────────────────────────────
+  entryItemOpen: {
+    borderLeftWidth: 3,
+    borderLeftColor: '#FFA500',
+  },
+  entryItemDone: {
+    opacity: 0.5,
+  },
+  commitmentBadge: {
+    marginLeft: 8,
+    paddingHorizontal: 7,
+    paddingVertical: 2,
+    borderRadius: 8,
+    borderWidth: 1,
+  },
+  commitmentBadgeOpen: {
+    backgroundColor: 'rgba(255, 165, 0, 0.12)',
+    borderColor: '#FFA500',
+  },
+  commitmentBadgeDone: {
+    backgroundColor: 'rgba(46, 204, 113, 0.12)',
+    borderColor: '#2ECC71',
+  },
+  commitmentBadgeAbandoned: {
+    backgroundColor: 'rgba(100, 100, 100, 0.12)',
+    borderColor: '#555555',
+  },
+  commitmentBadgeText: {
+    fontSize: 10,
+    fontWeight: '700',
+    letterSpacing: 0.5,
+    color: '#FFFFFF',
+  },
+  commitmentPanel: {
+    marginBottom: 16,
+  },
+  commitButton: {
+    paddingVertical: 12,
+    paddingHorizontal: 16,
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: 'rgba(255, 165, 0, 0.4)',
+    backgroundColor: 'rgba(255, 165, 0, 0.06)',
+    alignItems: 'center',
+  },
+  commitButtonText: {
+    color: '#FFA500',
+    fontSize: 14,
+    fontWeight: '600',
+  },
+  commitmentStatus: {
+    gap: 10,
+  },
+  commitmentStatusBadge: {
+    paddingVertical: 8,
+    paddingHorizontal: 14,
+    borderRadius: 10,
+    borderWidth: 1,
+    alignSelf: 'flex-start',
+  },
+  commitmentStatusText: {
+    fontSize: 13,
+    fontWeight: '700',
+    letterSpacing: 0.5,
+  },
+  commitmentActions: {
+    flexDirection: 'row',
+    gap: 10,
+  },
+  commitActionBtn: {
+    paddingVertical: 8,
+    paddingHorizontal: 16,
+    borderRadius: 10,
+    borderWidth: 1,
+    backgroundColor: 'rgba(0,0,0,0.2)',
+  },
+  commitActionText: {
+    fontSize: 13,
+    fontWeight: '600',
+  },
+  commitmentReasoning: {
+    color: '#555555',
+    fontSize: 12,
+    fontStyle: 'italic',
+    marginTop: 4,
+    lineHeight: 18,
   },
 
   // Debug info
