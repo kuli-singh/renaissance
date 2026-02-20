@@ -122,10 +122,14 @@ export default function App() {
   const [showBottleneckBanner, setShowBottleneckBanner] = useState(true);
   // commitmentMap: keyed by thought_id for O(1) lookups in render
   const [commitmentMap, setCommitmentMap] = useState<Record<string, Commitment>>({});
+  const [gateVisible, setGateVisible] = useState(false);
+  const [gateCountdown, setGateCountdown] = useState(3);
+  const [gateOpenCount, setGateOpenCount] = useState(0);
   const pulseAnim = useRef(new Animated.Value(1)).current;
   const recordingAnim = useRef(new Animated.Value(1)).current;
   const processingAnim = useRef(new Animated.Value(1)).current;
   const recordingRef = useRef<Audio.Recording | null>(null);
+  const gateTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
   const loadData = useCallback(async () => {
     try {
@@ -292,6 +296,12 @@ export default function App() {
     }
   }, [isProcessing, processingAnim]);
 
+  useEffect(() => {
+    return () => {
+      clearGateTimer();
+    };
+  }, []);
+
   const startRecording = async () => {
     try {
       const { recording } = await Audio.Recording.createAsync(
@@ -353,14 +363,64 @@ export default function App() {
     });
   };
 
-  const handlePressIn = async () => {
+  const clearGateTimer = () => {
+    if (gateTimerRef.current) {
+      clearInterval(gateTimerRef.current);
+      gateTimerRef.current = null;
+    }
+  };
+
+  const closeGate = () => {
+    clearGateTimer();
+    setGateVisible(false);
+    setGateCountdown(3);
+  };
+
+  const beginRecording = async () => {
     Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
     setIsRecording(true);
     setStatusText('Listening...');
     await startRecording();
   };
 
+  const openCommitmentGate = (openCount: number) => {
+    setGateOpenCount(openCount);
+    setGateVisible(true);
+    setGateCountdown(3);
+
+    clearGateTimer();
+    gateTimerRef.current = setInterval(() => {
+      setGateCountdown((prev) => {
+        if (prev <= 1) {
+          clearGateTimer();
+          return 0;
+        }
+        return prev - 1;
+      });
+    }, 1000);
+  };
+
+  const handleRecordAnyway = async () => {
+    closeGate();
+    await beginRecording();
+  };
+
+  const handlePressIn = async () => {
+    const openCommitments = Object.values(commitmentMap).filter(c => c.status === 'open').length;
+
+    if (openCommitments > 3) {
+      openCommitmentGate(openCommitments);
+      return;
+    }
+
+    await beginRecording();
+  };
+
   const handlePressOut = async () => {
+    if (!isRecording) {
+      return;
+    }
+
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Heavy);
     setIsRecording(false);
     setIsProcessing(true);
@@ -773,6 +833,54 @@ export default function App() {
     );
   };
 
+  const renderCommitmentGate = () => {
+    if (!gateVisible) return null;
+
+    return (
+      <Modal
+        animationType="fade"
+        transparent={true}
+        visible={gateVisible}
+        onRequestClose={closeGate}
+      >
+        <View style={styles.gateOverlay}>
+          <View style={styles.gateCard}>
+            <Text style={styles.gateTitle}>Commitment Checkpoint</Text>
+            <Text style={styles.gateBody}>
+              You have {gateOpenCount} open commitments. Record anyway, or close one first?
+            </Text>
+
+            {gateCountdown > 0 ? (
+              <Text style={styles.gateCountdown}>You can continue in {gateCountdown}…</Text>
+            ) : (
+              <Text style={styles.gateReady}>You can continue now.</Text>
+            )}
+
+            <View style={styles.gateActions}>
+              <TouchableOpacity
+                style={[
+                  styles.gatePrimaryButton,
+                  gateCountdown > 0 && styles.gatePrimaryButtonDisabled,
+                ]}
+                disabled={gateCountdown > 0}
+                onPress={handleRecordAnyway}
+              >
+                <Text style={styles.gatePrimaryButtonText}>Record anyway</Text>
+              </TouchableOpacity>
+
+              <TouchableOpacity
+                style={styles.gateSecondaryButton}
+                onPress={closeGate}
+              >
+                <Text style={styles.gateSecondaryButtonText}>Close one first</Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+        </View>
+      </Modal>
+    );
+  };
+
   return (
     <View style={styles.container}>
       <StatusBar style="light" />
@@ -971,6 +1079,9 @@ export default function App() {
 
       {/* Detail Modal */}
       {renderDetailModal()}
+
+      {/* Gate #2 */}
+      {renderCommitmentGate()}
     </View>
   );
 }
@@ -1698,6 +1809,81 @@ const styles = StyleSheet.create({
     fontStyle: 'italic',
     marginTop: 4,
     lineHeight: 18,
+  },
+
+  // Gate #2 modal
+  gateOverlay: {
+    flex: 1,
+    backgroundColor: 'rgba(0, 0, 0, 0.85)',
+    justifyContent: 'center',
+    alignItems: 'center',
+    paddingHorizontal: 24,
+  },
+  gateCard: {
+    width: '100%',
+    maxWidth: 420,
+    backgroundColor: '#0a0a0a',
+    borderWidth: 1,
+    borderColor: 'rgba(255, 165, 0, 0.5)',
+    borderRadius: 16,
+    padding: 20,
+  },
+  gateTitle: {
+    color: '#FFA500',
+    fontSize: 16,
+    fontWeight: '700',
+    letterSpacing: 1,
+    marginBottom: 10,
+    textTransform: 'uppercase',
+  },
+  gateBody: {
+    color: '#FFFFFF',
+    fontSize: 16,
+    lineHeight: 24,
+    marginBottom: 12,
+  },
+  gateCountdown: {
+    color: '#FFA500',
+    fontSize: 13,
+    marginBottom: 16,
+    fontWeight: '600',
+  },
+  gateReady: {
+    color: '#2ECC71',
+    fontSize: 13,
+    marginBottom: 16,
+    fontWeight: '600',
+  },
+  gateActions: {
+    gap: 10,
+  },
+  gatePrimaryButton: {
+    backgroundColor: '#FFA500',
+    borderRadius: 10,
+    paddingVertical: 12,
+    alignItems: 'center',
+  },
+  gatePrimaryButtonDisabled: {
+    opacity: 0.45,
+  },
+  gatePrimaryButtonText: {
+    color: '#000000',
+    fontSize: 14,
+    fontWeight: '700',
+    letterSpacing: 0.6,
+  },
+  gateSecondaryButton: {
+    borderWidth: 1,
+    borderColor: '#666666',
+    borderRadius: 10,
+    paddingVertical: 12,
+    alignItems: 'center',
+    backgroundColor: 'rgba(255, 255, 255, 0.03)',
+  },
+  gateSecondaryButtonText: {
+    color: '#BBBBBB',
+    fontSize: 14,
+    fontWeight: '600',
   },
 
   // Debug info
