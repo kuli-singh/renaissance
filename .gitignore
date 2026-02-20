@@ -30,6 +30,11 @@ yarn-error.*
 .DS_Store
 *.pem
 
+# Editor swap / backup files
+*.swp
+*.swo
+*~
+
 # local env files
 # CRITICAL: Prevent API Key Leaks
 .env

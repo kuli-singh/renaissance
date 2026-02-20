@@ -156,22 +156,25 @@ export default function App() {
 
         if (yesterdaysVents.length > 0) {
           setIsLoadingMirror(true);
-          const ventContents = yesterdaysVents
-            .filter(v => v.content)
-            .map(v => ({ content: v.content || '', created_at: v.created_at }));
-          const mirror = await generateDailyMirror(ventContents);
+          try {
+            const ventContents = yesterdaysVents
+              .filter(v => v.content)
+              .map(v => ({ content: v.content || '', created_at: v.created_at }));
+            const mirror = await generateDailyMirror(ventContents);
 
-          // Store the mirror with today's generation date
-          const today = getTodayDateString();
-          await Promise.all([
-            AsyncStorage.setItem(STORAGE_KEYS.MORNING_MIRROR, mirror),
-            AsyncStorage.setItem(STORAGE_KEYS.MORNING_MIRROR_DATE, yesterday),
-            AsyncStorage.setItem(STORAGE_KEYS.MORNING_MIRROR_GENERATED, today),
-          ]);
+            // Store the mirror with today's generation date
+            const today = getTodayDateString();
+            await Promise.all([
+              AsyncStorage.setItem(STORAGE_KEYS.MORNING_MIRROR, mirror),
+              AsyncStorage.setItem(STORAGE_KEYS.MORNING_MIRROR_DATE, yesterday),
+              AsyncStorage.setItem(STORAGE_KEYS.MORNING_MIRROR_GENERATED, today),
+            ]);
 
-          setMorningMirror(mirror);
-          setMirrorSourceDate(yesterday);
-          setIsLoadingMirror(false);
+            setMorningMirror(mirror);
+            setMirrorSourceDate(yesterday);
+          } finally {
+            setIsLoadingMirror(false);
+          }
         } else {
           // No vents yesterday - clear the mirror
           await Promise.all([

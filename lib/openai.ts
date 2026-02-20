@@ -150,19 +150,27 @@ Return ONLY a JSON array:
 }
 
 // Full processing pipeline: Transcribe → Strategist → Embed
+// Each extracted thought gets its own embedding based on its specific title + content,
+// not a shared embedding of the full transcription.
 export async function processThought(transcription: string): Promise<ProcessedThought[]> {
-  // Run strategist categorization and embedding generation in parallel where possible
-  const [items, embedding] = await Promise.all([
-    processWithStrategist(transcription),
-    generateEmbedding(transcription),
-  ]);
+  // Step 1: Categorise all thoughts first
+  const items = await processWithStrategist(transcription);
 
-  return items.map(item => ({
+  if (items.length === 0) return [];
+
+  // Step 2: Generate a unique embedding per thought using its title + content
+  const embeddings = await Promise.all(
+    items.map(item =>
+      generateEmbedding(`${item.title}. ${transcription}`)
+    )
+  );
+
+  return items.map((item, index) => ({
     title: item.title,
     category: item.type,
     insight: item.strategic_insight,
     energy: item.energy,
-    embedding: embedding,
+    embedding: embeddings[index],
     content: transcription,
   }));
 }
