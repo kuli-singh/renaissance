@@ -29,5 +29,8 @@ jobs:
           eas-version: latest
           token: ${{ secrets.EXPO_TOKEN }}
 
-      - name: Publish update
+      - name: Publish preview update
         run: eas update --auto --branch preview
+
+      - name: Publish production update
+        run: eas update --auto --branch production
