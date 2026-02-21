@@ -78,8 +78,9 @@ const getYesterdayDateString = () => {
   return yesterday.toISOString().split('T')[0];
 };
 
-const APP_VERSION = '1.0.0';
+const APP_VERSION = '1.0.1';
 const APP_RUNTIME = 'exposdk:54.0.0';
+const APP_BUILD_TAG = 'hotfix-commitment-gate-v2';
 
 // Format date for display (e.g., "February 13")
 const formatDateForDisplay = (dateStr: string) => {
@@ -162,7 +163,7 @@ export default function App() {
       // Ignore noisy migration/deployment entries.
       const oldestMomentum = fetchedEntries
         .filter(e => e.type === 'momentum')
-        .filter(e => !/^app deployment success$/i.test((e.title || '').trim()))
+        .filter(e => !isDeploymentNoise(e.title))
         .slice(-1)[0]; // Get the oldest (last in desc order)
       if (oldestMomentum) {
         setBottleneck(oldestMomentum.title);
@@ -524,8 +525,13 @@ export default function App() {
     setIsRefreshing(false);
   };
 
+  const isDeploymentNoise = (title?: string | null) => {
+    const t = (title || '').toLowerCase().trim();
+    return t.includes('app deployment success') || (t.includes('deployment') && t.includes('success'));
+  };
+
   const visibleEntries = entries.filter(
-    (entry) => !/^app deployment success$/i.test((entry.title || '').trim())
+    (entry) => !isDeploymentNoise(entry.title)
   );
 
   const openDetail = (entry: AnimatedEntry) => {
@@ -913,7 +919,7 @@ export default function App() {
 
       {/* Header */}
       <Text style={styles.header}>Renaissance</Text>
-      <Text style={styles.versionBadge}>v{APP_VERSION} · {APP_RUNTIME}</Text>
+      <Text style={styles.versionBadge}>v{APP_VERSION} · {APP_RUNTIME} · {APP_BUILD_TAG}</Text>
 
       {/* Spirit Animal */}
       <View style={styles.spiritAnimalContainer}>

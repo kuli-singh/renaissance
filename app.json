@@ -3,11 +3,11 @@
     "name": "Renaissance",
     "slug": "renaissance",
     "owner": "kuli_s",
-    "version": "1.0.0",
+    "version": "1.0.1",
     "orientation": "portrait",
     "icon": "./assets/icon.png",
     "userInterfaceStyle": "dark",
-    "newArchEnabled": true,
+    "newArchEnabled": false,
     "splash": {
       "image": "./assets/splash-icon.png",
       "resizeMode": "contain",
@@ -22,7 +22,8 @@
         "foregroundImage": "./assets/adaptive-icon.png",
         "backgroundColor": "#000000"
       },
-      "package": "com.kuli.renaissance"
+      "package": "com.kuli.renaissance",
+      "versionCode": 2
     },
     "web": {
       "favicon": "./assets/favicon.png",
