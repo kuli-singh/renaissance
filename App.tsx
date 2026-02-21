@@ -209,14 +209,14 @@ export default function App() {
             setIsLoadingMirror(false);
           }
         } else {
-          // No vents yesterday - clear the mirror
-          await Promise.all([
-            AsyncStorage.removeItem(STORAGE_KEYS.MORNING_MIRROR),
-            AsyncStorage.removeItem(STORAGE_KEYS.MORNING_MIRROR_DATE),
-            AsyncStorage.setItem(STORAGE_KEYS.MORNING_MIRROR_GENERATED, getTodayDateString()),
-          ]);
-          setMorningMirror(null);
-          setMirrorSourceDate(null);
+          // No vents yesterday - keep last available mirror instead of clearing it
+          // (prevents the card from disappearing on quiet/no-vent days)
+          await AsyncStorage.setItem(STORAGE_KEYS.MORNING_MIRROR_GENERATED, getTodayDateString());
+
+          if (storedMirror && storedSourceDate) {
+            setMorningMirror(storedMirror);
+            setMirrorSourceDate(storedSourceDate);
+          }
         }
       } else if (storedMirror && storedSourceDate) {
         // Use the cached mirror (already generated today)
