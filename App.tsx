@@ -1,7 +1,7 @@
 import { StatusBar } from 'expo-status-bar';
 import * as Haptics from 'expo-haptics';
 import { Audio } from 'expo-av';
-// version badge values are sourced from app config constants below
+import * as Updates from 'expo-updates';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useState, useRef, useEffect, useCallback } from 'react';
 import {
@@ -78,9 +78,8 @@ const getYesterdayDateString = () => {
   return yesterday.toISOString().split('T')[0];
 };
 
-const APP_VERSION = '1.0.1';
-const APP_RUNTIME = 'exposdk:54.0.0';
-const APP_BUILD_TAG = 'hotfix-commitment-gate-v2';
+const ENABLE_COMMITMENT_GATE = false;
+const ENABLE_BOTTLENECK_BANNER = false;
 
 // Format date for display (e.g., "February 13")
 const formatDateForDisplay = (dateStr: string) => {
@@ -128,6 +127,8 @@ export default function App() {
   // commitmentMap: keyed by thought_id for O(1) lookups in render
   const [commitmentMap, setCommitmentMap] = useState<Record<string, Commitment>>({});
   const [gateVisible, setGateVisible] = useState(false);
+  const updateIdShort = (Updates.updateId || 'embedded').slice(0, 8);
+  const channel = Updates.channel || 'unknown-channel';
   const [gateCountdown, setGateCountdown] = useState(3);
   const [gateOpenCount, setGateOpenCount] = useState(0);
   const pulseAnim = useRef(new Animated.Value(1)).current;
@@ -431,7 +432,7 @@ export default function App() {
 
     const openCommitments = Object.values(commitmentMap).filter(c => c.status === 'open').length;
 
-    if (openCommitments > 3) {
+    if (ENABLE_COMMITMENT_GATE && openCommitments > 3) {
       openCommitmentGate(openCommitments);
       return;
     }
@@ -919,7 +920,7 @@ export default function App() {
 
       {/* Header */}
       <Text style={styles.header}>Renaissance</Text>
-      <Text style={styles.versionBadge}>v{APP_VERSION} · {APP_RUNTIME} · {APP_BUILD_TAG}</Text>
+      <Text style={styles.versionBadge}>ch:{channel} · upd:{updateIdShort}</Text>
 
       {/* Spirit Animal */}
       <View style={styles.spiritAnimalContainer}>
@@ -928,7 +929,7 @@ export default function App() {
       </View>
 
       {/* Accountability Banner - Bottleneck Detector */}
-      {showBottleneckBanner && bottleneck && (
+      {ENABLE_BOTTLENECK_BANNER && showBottleneckBanner && bottleneck && (
         <View style={styles.accountabilityBanner}>
           <View style={styles.bottleneckContent}>
             <Text style={styles.bottleneckLabel}>BOTTLENECK DETECTED</Text>
