@@ -420,7 +420,7 @@ export default function App() {
 
   const handleRecordAnyway = async () => {
     closeGate();
-    await beginRecording();
+    setStatusText('Hold to record');
   };
 
   const handlePressIn = async () => {
@@ -891,7 +891,7 @@ export default function App() {
                 disabled={gateCountdown > 0}
                 onPress={handleRecordAnyway}
               >
-                <Text style={styles.gatePrimaryButtonText}>Record anyway</Text>
+                <Text style={styles.gatePrimaryButtonText}>Continue</Text>
               </TouchableOpacity>
 
               <TouchableOpacity
