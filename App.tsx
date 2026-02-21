@@ -1,6 +1,7 @@
 import { StatusBar } from 'expo-status-bar';
 import * as Haptics from 'expo-haptics';
 import { Audio } from 'expo-av';
+// version badge values are sourced from app config constants below
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useState, useRef, useEffect, useCallback } from 'react';
 import {
@@ -76,6 +77,9 @@ const getYesterdayDateString = () => {
   yesterday.setDate(yesterday.getDate() - 1);
   return yesterday.toISOString().split('T')[0];
 };
+
+const APP_VERSION = '1.0.0';
+const APP_RUNTIME = 'exposdk:54.0.0';
 
 // Format date for display (e.g., "February 13")
 const formatDateForDisplay = (dateStr: string) => {
@@ -502,6 +506,10 @@ export default function App() {
     setIsRefreshing(false);
   };
 
+  const visibleEntries = entries.filter(
+    (entry) => !/^app deployment success$/i.test((entry.title || '').trim())
+  );
+
   const openDetail = (entry: AnimatedEntry) => {
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
     console.log('Opening entry:', {
@@ -887,6 +895,7 @@ export default function App() {
 
       {/* Header */}
       <Text style={styles.header}>Renaissance</Text>
+      <Text style={styles.versionBadge}>v{APP_VERSION} · {APP_RUNTIME}</Text>
 
       {/* Spirit Animal */}
       <View style={styles.spiritAnimalContainer}>
@@ -1056,13 +1065,13 @@ export default function App() {
       <View style={styles.entryListContainer}>
         <Text style={styles.entryListHeader}>
           {activeFilter
-            ? `${TYPE_LABELS[activeFilter] || activeFilter} (${entries.filter(e => e.type === activeFilter).length})`
-            : entries.length > 0
-              ? `Brain Dump (${entries.length})`
+            ? `${TYPE_LABELS[activeFilter] || activeFilter} (${visibleEntries.filter(e => e.type === activeFilter).length})`
+            : visibleEntries.length > 0
+              ? `Brain Dump (${visibleEntries.length})`
               : 'Your thoughts will appear here'}
         </Text>
         <FlatList
-          data={activeFilter ? entries.filter(e => e.type === activeFilter) : entries}
+          data={activeFilter ? visibleEntries.filter(e => e.type === activeFilter) : visibleEntries}
           renderItem={renderEntry}
           keyExtractor={(item) => item.id}
           style={styles.entryList}
@@ -1101,7 +1110,13 @@ const styles = StyleSheet.create({
     fontWeight: '300',
     color: CYAN,
     letterSpacing: 4,
-    marginBottom: 8,
+    marginBottom: 4,
+  },
+  versionBadge: {
+    color: '#666666',
+    fontSize: 11,
+    letterSpacing: 0.8,
+    marginBottom: 10,
   },
   spiritAnimalContainer: {
     alignItems: 'center',
