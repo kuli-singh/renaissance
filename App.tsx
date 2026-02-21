@@ -158,12 +158,16 @@ export default function App() {
       setSpiritAnimal(animal);
 
       // Find the oldest momentum item as the "bottleneck" (the one being avoided)
+      // Ignore noisy migration/deployment entries.
       const oldestMomentum = fetchedEntries
         .filter(e => e.type === 'momentum')
+        .filter(e => !/^app deployment success$/i.test((e.title || '').trim()))
         .slice(-1)[0]; // Get the oldest (last in desc order)
       if (oldestMomentum) {
         setBottleneck(oldestMomentum.title);
         setShowBottleneckBanner(true);
+      } else {
+        setBottleneck(null);
       }
 
       // Morning Mirror: Daily synthesis of YESTERDAY's vents
