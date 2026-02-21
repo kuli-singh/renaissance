@@ -134,6 +134,7 @@ export default function App() {
   const processingAnim = useRef(new Animated.Value(1)).current;
   const recordingRef = useRef<Audio.Recording | null>(null);
   const gateTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const recordPressLockRef = useRef(false);
 
   const loadData = useCallback(async () => {
     try {
@@ -385,10 +386,19 @@ export default function App() {
   };
 
   const beginRecording = async () => {
-    Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
-    setIsRecording(true);
-    setStatusText('Listening...');
-    await startRecording();
+    if (recordPressLockRef.current || isRecording || isProcessing || gateVisible) {
+      return;
+    }
+
+    recordPressLockRef.current = true;
+    try {
+      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+      setIsRecording(true);
+      setStatusText('Listening...');
+      await startRecording();
+    } finally {
+      recordPressLockRef.current = false;
+    }
   };
 
   const openCommitmentGate = (openCount: number) => {
@@ -414,6 +424,10 @@ export default function App() {
   };
 
   const handlePressIn = async () => {
+    if (isProcessing || gateVisible || isRecording) {
+      return;
+    }
+
     const openCommitments = Object.values(commitmentMap).filter(c => c.status === 'open').length;
 
     if (openCommitments > 3) {
@@ -425,7 +439,7 @@ export default function App() {
   };
 
   const handlePressOut = async () => {
-    if (!isRecording) {
+    if (!isRecording || isProcessing) {
       return;
     }
 
@@ -1044,7 +1058,7 @@ export default function App() {
         <Pressable
           onPressIn={handlePressIn}
           onPressOut={handlePressOut}
-          disabled={isProcessing}
+          disabled={isProcessing || gateVisible || isRecording}
           style={[
             styles.button,
             isRecording && styles.buttonRecording,
