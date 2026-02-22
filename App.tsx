@@ -121,6 +121,7 @@ export default function App() {
   const [mirrorSourceDate, setMirrorSourceDate] = useState<string | null>(null);
   const [isLoadingMirror, setIsLoadingMirror] = useState(false);
   const [activeFilter, setActiveFilter] = useState<string | null>(null);
+  const [activeTab, setActiveTab] = useState<'capture' | 'commitments'>('capture');
   const [isMirrorCollapsed, setIsMirrorCollapsed] = useState(true);
   const [bottleneck, setBottleneck] = useState<string | null>(null);
   const [showBottleneckBanner, setShowBottleneckBanner] = useState(true);
@@ -535,6 +536,22 @@ export default function App() {
     (entry) => !isDeploymentNoise(entry.title)
   );
 
+  const commitmentItems = Object.entries(commitmentMap)
+    .map(([thoughtId, commitment]) => {
+      const entry = visibleEntries.find((e) => e.id === thoughtId);
+      if (!entry) return null;
+      return { entry, commitment };
+    })
+    .filter((item): item is { entry: AnimatedEntry; commitment: Commitment } => !!item)
+    .sort((a, b) => {
+      if (a.commitment.status === b.commitment.status) {
+        return new Date(b.entry.created_at).getTime() - new Date(a.entry.created_at).getTime();
+      }
+      if (a.commitment.status === 'open') return -1;
+      if (b.commitment.status === 'open') return 1;
+      return 0;
+    });
+
   const openDetail = (entry: AnimatedEntry) => {
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
     console.log('Opening entry:', {
@@ -630,6 +647,58 @@ export default function App() {
           <Text style={styles.entryArrow}>›</Text>
         </Animated.View>
       </TouchableOpacity>
+    );
+  };
+
+  const renderCommitmentItem = ({ item }: { item: { entry: AnimatedEntry; commitment: Commitment } }) => {
+    const { entry, commitment } = item;
+    const typeColor = TYPE_COLORS[entry.type] || '#00FFFF';
+
+    return (
+      <View style={styles.commitmentListCard}>
+        <TouchableOpacity onPress={() => openDetail(entry)} activeOpacity={0.7}>
+          <Text style={styles.commitmentListTitle}>{fixName(entry.title)}</Text>
+          <Text style={[styles.commitmentListMeta, { color: typeColor }]}>
+            {TYPE_LABELS[entry.type] || entry.type} · {formatDate(entry.created_at)}
+          </Text>
+        </TouchableOpacity>
+
+        <View style={styles.commitmentListActions}>
+          {commitment.status !== 'completed' && (
+            <TouchableOpacity
+              style={[styles.commitmentActionPill, { borderColor: '#2ECC71' }]}
+              onPress={async () => {
+                const ok = await updateCommitmentStatus(commitment.id, 'completed');
+                if (ok) setCommitmentMap(prev => ({ ...prev, [entry.id]: { ...commitment, status: 'completed' } }));
+              }}
+            >
+              <Text style={[styles.commitmentActionPillText, { color: '#2ECC71' }]}>Done</Text>
+            </TouchableOpacity>
+          )}
+          {commitment.status !== 'open' && (
+            <TouchableOpacity
+              style={[styles.commitmentActionPill, { borderColor: '#FFA500' }]}
+              onPress={async () => {
+                const ok = await updateCommitmentStatus(commitment.id, 'open');
+                if (ok) setCommitmentMap(prev => ({ ...prev, [entry.id]: { ...commitment, status: 'open' } }));
+              }}
+            >
+              <Text style={[styles.commitmentActionPillText, { color: '#FFA500' }]}>Open</Text>
+            </TouchableOpacity>
+          )}
+          {commitment.status !== 'abandoned' && (
+            <TouchableOpacity
+              style={[styles.commitmentActionPill, { borderColor: '#666666' }]}
+              onPress={async () => {
+                const ok = await updateCommitmentStatus(commitment.id, 'abandoned');
+                if (ok) setCommitmentMap(prev => ({ ...prev, [entry.id]: { ...commitment, status: 'abandoned' } }));
+              }}
+            >
+              <Text style={[styles.commitmentActionPillText, { color: '#666666' }]}>Drop</Text>
+            </TouchableOpacity>
+          )}
+        </View>
+      </View>
     );
   };
 
@@ -922,6 +991,21 @@ export default function App() {
       <Text style={styles.header}>Renaissance</Text>
       <Text style={styles.versionBadge}>ch:{channel} · upd:{updateIdShort}</Text>
 
+      <View style={styles.modeTabs}>
+        <TouchableOpacity
+          style={[styles.modeTab, activeTab === 'capture' && styles.modeTabActive]}
+          onPress={() => setActiveTab('capture')}
+        >
+          <Text style={[styles.modeTabText, activeTab === 'capture' && styles.modeTabTextActive]}>Capture</Text>
+        </TouchableOpacity>
+        <TouchableOpacity
+          style={[styles.modeTab, activeTab === 'commitments' && styles.modeTabActive]}
+          onPress={() => setActiveTab('commitments')}
+        >
+          <Text style={[styles.modeTabText, activeTab === 'commitments' && styles.modeTabTextActive]}>Commitments</Text>
+        </TouchableOpacity>
+      </View>
+
       {/* Spirit Animal */}
       <View style={styles.spiritAnimalContainer}>
         <Text style={styles.spiritAnimalLabel}>Spirit Animal</Text>
@@ -947,6 +1031,8 @@ export default function App() {
         </View>
       )}
 
+      {activeTab === 'capture' && (
+      <>
       {/* Fixed Header Area - Filter Bar + Morning Mirror */}
       <View style={styles.fixedHeader}>
         {/* Category Filter Bar */}
@@ -1085,30 +1171,58 @@ export default function App() {
       <Text style={styles.hint}>
         {isRecording ? 'Release to process' : statusText}
       </Text>
+      </>
+      )}
 
       {/* Entry List - Fills remaining space */}
       <View style={styles.entryListContainer}>
         <Text style={styles.entryListHeader}>
-          {activeFilter
-            ? `${TYPE_LABELS[activeFilter] || activeFilter} (${visibleEntries.filter(e => e.type === activeFilter).length})`
-            : visibleEntries.length > 0
-              ? `Brain Dump (${visibleEntries.length})`
-              : 'Your thoughts will appear here'}
+          {activeTab === 'commitments'
+            ? `Commitments (${commitmentItems.length})`
+            : activeFilter
+              ? `${TYPE_LABELS[activeFilter] || activeFilter} (${visibleEntries.filter(e => e.type === activeFilter).length})`
+              : visibleEntries.length > 0
+                ? `Brain Dump (${visibleEntries.length})`
+                : 'Your thoughts will appear here'}
         </Text>
-        <FlatList
-          data={activeFilter ? visibleEntries.filter(e => e.type === activeFilter) : visibleEntries}
-          renderItem={renderEntry}
-          keyExtractor={(item) => item.id}
-          style={styles.entryList}
-          showsVerticalScrollIndicator={false}
-          refreshControl={
-            <RefreshControl
-              refreshing={isRefreshing}
-              onRefresh={onRefresh}
-              tintColor="#00FFFF"
+
+        {activeTab === 'commitments' ? (
+          commitmentItems.length === 0 ? (
+            <View style={styles.emptyCommitmentsState}>
+              <Text style={styles.emptyCommitmentsText}>No commitments yet. Open a thought and tap “Make this a Commitment”.</Text>
+            </View>
+          ) : (
+            <FlatList
+              data={commitmentItems}
+              renderItem={renderCommitmentItem}
+              keyExtractor={(item) => item.commitment.id}
+              style={styles.entryList}
+              showsVerticalScrollIndicator={false}
+              refreshControl={
+                <RefreshControl
+                  refreshing={isRefreshing}
+                  onRefresh={onRefresh}
+                  tintColor="#00FFFF"
+                />
+              }
             />
-          }
-        />
+          )
+        ) : (
+          <FlatList
+            data={activeFilter ? visibleEntries.filter(e => e.type === activeFilter) : visibleEntries}
+            renderItem={renderEntry}
+            keyExtractor={(item) => item.id}
+            style={styles.entryList}
+            showsVerticalScrollIndicator={false}
+            refreshControl={
+              <RefreshControl
+                refreshing={isRefreshing}
+                onRefresh={onRefresh}
+                tintColor="#00FFFF"
+              />
+            }
+          />
+        )}
       </View>
 
       {/* Detail Modal */}
@@ -1142,6 +1256,31 @@ const styles = StyleSheet.create({
     fontSize: 11,
     letterSpacing: 0.8,
     marginBottom: 10,
+  },
+  modeTabs: {
+    flexDirection: 'row',
+    gap: 8,
+    marginBottom: 10,
+  },
+  modeTab: {
+    borderWidth: 1,
+    borderColor: '#333333',
+    borderRadius: 16,
+    paddingHorizontal: 14,
+    paddingVertical: 6,
+    backgroundColor: '#0b0b0b',
+  },
+  modeTabActive: {
+    borderColor: CYAN,
+    backgroundColor: 'rgba(0,255,255,0.08)',
+  },
+  modeTabText: {
+    color: '#888888',
+    fontSize: 12,
+    fontWeight: '600',
+  },
+  modeTabTextActive: {
+    color: CYAN,
   },
   spiritAnimalContainer: {
     alignItems: 'center',
@@ -1348,6 +1487,55 @@ const styles = StyleSheet.create({
   },
   entryList: {
     flex: 1,
+  },
+  emptyCommitmentsState: {
+    borderWidth: 1,
+    borderColor: '#1f1f1f',
+    borderRadius: 12,
+    padding: 14,
+    backgroundColor: '#0b0b0b',
+  },
+  emptyCommitmentsText: {
+    color: '#9a9a9a',
+    fontSize: 14,
+    lineHeight: 20,
+  },
+  commitmentListCard: {
+    borderWidth: 1,
+    borderColor: '#1f1f1f',
+    borderRadius: 12,
+    padding: 12,
+    marginBottom: 10,
+    backgroundColor: '#0b0b0b',
+  },
+  commitmentListTitle: {
+    color: '#FFFFFF',
+    fontSize: 15,
+    fontWeight: '600',
+    marginBottom: 4,
+  },
+  commitmentListMeta: {
+    fontSize: 12,
+    marginBottom: 10,
+    textTransform: 'uppercase',
+    letterSpacing: 0.7,
+  },
+  commitmentListActions: {
+    flexDirection: 'row',
+    gap: 8,
+    flexWrap: 'wrap',
+  },
+  commitmentActionPill: {
+    borderWidth: 1,
+    borderRadius: 16,
+    paddingHorizontal: 10,
+    paddingVertical: 5,
+    backgroundColor: '#111111',
+  },
+  commitmentActionPillText: {
+    fontSize: 12,
+    fontWeight: '700',
+    letterSpacing: 0.5,
   },
   entryItem: {
     flexDirection: 'row',
