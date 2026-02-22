@@ -654,10 +654,34 @@ export default function App() {
     const { entry, commitment } = item;
     const typeColor = TYPE_COLORS[entry.type] || '#00FFFF';
 
+    const statusLabel = commitment.status === 'open'
+      ? 'OPEN'
+      : commitment.status === 'completed'
+        ? 'DONE'
+        : 'DROPPED';
+    const statusIcon = commitment.status === 'open'
+      ? '📋'
+      : commitment.status === 'completed'
+        ? '✅'
+        : '🗑';
+
     return (
       <View style={styles.commitmentListCard}>
+        <View style={styles.commitmentListTopRow}>
+          <TouchableOpacity onPress={() => openDetail(entry)} activeOpacity={0.7} style={styles.commitmentListTitleWrap}>
+            <Text style={styles.commitmentListTitle}>{fixName(entry.title)}</Text>
+          </TouchableOpacity>
+          <View style={[
+            styles.commitmentListStatusBadge,
+            commitment.status === 'open' && styles.commitmentListStatusOpen,
+            commitment.status === 'completed' && styles.commitmentListStatusDone,
+            commitment.status === 'abandoned' && styles.commitmentListStatusDropped,
+          ]}>
+            <Text style={styles.commitmentListStatusText}>{statusIcon} {statusLabel}</Text>
+          </View>
+        </View>
+
         <TouchableOpacity onPress={() => openDetail(entry)} activeOpacity={0.7}>
-          <Text style={styles.commitmentListTitle}>{fixName(entry.title)}</Text>
           <Text style={[styles.commitmentListMeta, { color: typeColor }]}>
             {TYPE_LABELS[entry.type] || entry.type} · {formatDate(entry.created_at)}
           </Text>
@@ -1507,6 +1531,40 @@ const styles = StyleSheet.create({
     padding: 12,
     marginBottom: 10,
     backgroundColor: '#0b0b0b',
+  },
+  commitmentListTopRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    gap: 10,
+  },
+  commitmentListTitleWrap: {
+    flex: 1,
+  },
+  commitmentListStatusBadge: {
+    borderWidth: 1,
+    borderRadius: 12,
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+    backgroundColor: '#101010',
+  },
+  commitmentListStatusOpen: {
+    borderColor: '#FFA500',
+    backgroundColor: 'rgba(255, 165, 0, 0.12)',
+  },
+  commitmentListStatusDone: {
+    borderColor: '#2ECC71',
+    backgroundColor: 'rgba(46, 204, 113, 0.12)',
+  },
+  commitmentListStatusDropped: {
+    borderColor: '#777777',
+    backgroundColor: 'rgba(130, 130, 130, 0.12)',
+  },
+  commitmentListStatusText: {
+    color: '#FFFFFF',
+    fontSize: 11,
+    fontWeight: '700',
+    letterSpacing: 0.4,
   },
   commitmentListTitle: {
     color: '#FFFFFF',
