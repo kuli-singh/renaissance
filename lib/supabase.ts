@@ -23,6 +23,12 @@ export interface Commitment {
   status: 'open' | 'completed' | 'abandoned';
   reasoning?: string;
   created_at: string;
+  kind?: 'one_off' | 'ongoing';
+  cadence?: 'none' | 'daily' | 'weekly' | 'monthly';
+  last_progress_at?: string | null;
+  progress_count_7d?: number;
+  progress_count_30d?: number;
+  latest_progress_note?: string | null;
 }
 
 export interface Entry {
@@ -245,6 +251,43 @@ export async function updateCommitmentStatus(
     return false;
   }
   return true;
+}
+
+export async function logCommitmentProgress(
+  id: string,
+  note?: string
+): Promise<Commitment | null> {
+  const { data: existing, error: fetchError } = await supabase
+    .from('commitments')
+    .select('id,progress_count_7d,progress_count_30d')
+    .eq('id', id)
+    .single();
+
+  if (fetchError || !existing) {
+    console.error('Error loading commitment progress fields:', fetchError?.message);
+    return null;
+  }
+
+  const payload = {
+    last_progress_at: new Date().toISOString(),
+    progress_count_7d: (existing.progress_count_7d || 0) + 1,
+    progress_count_30d: (existing.progress_count_30d || 0) + 1,
+    latest_progress_note: note || null,
+  };
+
+  const { data, error } = await supabase
+    .from('commitments')
+    .update(payload)
+    .eq('id', id)
+    .select('*')
+    .single();
+
+  if (error) {
+    console.error('Error logging commitment progress:', error.message);
+    return null;
+  }
+
+  return data;
 }
 
 // ── Spirit Animal ─────────────────────────────────────────────────────────────

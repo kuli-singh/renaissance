@@ -14,3 +14,8 @@ Format:
 [2026-02-22T11:04:00Z] STARTED — Visibility protocol setup
 - Added WORKLOG.md for transparent progress tracking.
 - Next task: implement ongoing commitment progress logging (T4).
+
+[2026-02-22T11:20:00Z] DONE — Ongoing progress logging v1 (quick action)
+- Added Progress action in Commitments tab for open items
+- Added Last progress metadata line on cards
+- Wired to Supabase logCommitmentProgress helper

@@ -27,6 +27,7 @@ import {
   fetchCommitments,
   createCommitment,
   updateCommitmentStatus,
+  logCommitmentProgress,
 } from './lib/supabase';
 
 // Fix voice-to-text name errors in display
@@ -682,12 +683,28 @@ export default function App() {
         </View>
 
         <TouchableOpacity onPress={() => openDetail(entry)} activeOpacity={0.7}>
-          <Text style={[styles.commitmentListMeta, { color: typeColor }]}>
+          <Text style={[styles.commitmentListMeta, { color: typeColor }]}> 
             {TYPE_LABELS[entry.type] || entry.type} · {formatDate(entry.created_at)}
           </Text>
+          {!!commitment.last_progress_at && (
+            <Text style={styles.commitmentProgressMeta}>
+              Last progress: {formatDate(commitment.last_progress_at)}
+            </Text>
+          )}
         </TouchableOpacity>
 
         <View style={styles.commitmentListActions}>
+          {commitment.status === 'open' && (
+            <TouchableOpacity
+              style={[styles.commitmentActionPill, { borderColor: '#00B8D9' }]}
+              onPress={async () => {
+                const updated = await logCommitmentProgress(commitment.id, 'Quick progress check-in');
+                if (updated) setCommitmentMap(prev => ({ ...prev, [entry.id]: updated }));
+              }}
+            >
+              <Text style={[styles.commitmentActionPillText, { color: '#00E5FF' }]}>Progress</Text>
+            </TouchableOpacity>
+          )}
           {commitment.status !== 'completed' && (
             <TouchableOpacity
               style={[styles.commitmentActionPill, { borderColor: '#2ECC71' }]}
@@ -1213,7 +1230,7 @@ export default function App() {
         {activeTab === 'commitments' ? (
           commitmentItems.length === 0 ? (
             <View style={styles.emptyCommitmentsState}>
-              <Text style={styles.emptyCommitmentsText}>No commitments yet. Open a thought and tap “Make this a Commitment”.</Text>
+              <Text style={styles.emptyCommitmentsText}>No commitments yet. Open a thought and tap "Make this a Commitment".</Text>
             </View>
           ) : (
             <FlatList
@@ -1574,9 +1591,14 @@ const styles = StyleSheet.create({
   },
   commitmentListMeta: {
     fontSize: 12,
-    marginBottom: 10,
+    marginBottom: 6,
     textTransform: 'uppercase',
     letterSpacing: 0.7,
+  },
+  commitmentProgressMeta: {
+    color: '#8a8a8a',
+    fontSize: 12,
+    marginBottom: 8,
   },
   commitmentListActions: {
     flexDirection: 'row',
