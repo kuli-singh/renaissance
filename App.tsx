@@ -72,6 +72,10 @@ const STORAGE_KEYS = {
   WEEKLY_FOCUS: 'renaissance_weekly_focus',
   DAILY_ALIGNMENT: 'renaissance_daily_alignment',
   COMPASS_UPDATED_AT: 'renaissance_compass_updated_at',
+  DAILY_MOVE: 'renaissance_daily_move',
+  DAILY_BLOCKER: 'renaissance_daily_blocker',
+  DAILY_WHEN: 'renaissance_daily_when',
+  DAILY_CHECKIN_UPDATED_AT: 'renaissance_daily_checkin_updated_at',
 };
 
 // Get today's date string for comparison
@@ -143,6 +147,10 @@ export default function App() {
   const [weeklyFocus, setWeeklyFocus] = useState('');
   const [dailyAlignment, setDailyAlignment] = useState<'yes' | 'partial' | 'no' | null>(null);
   const [compassUpdatedAt, setCompassUpdatedAt] = useState<string | null>(null);
+  const [dailyMove, setDailyMove] = useState('');
+  const [dailyBlocker, setDailyBlocker] = useState('');
+  const [dailyWhen, setDailyWhen] = useState('');
+  const [dailyCheckinUpdatedAt, setDailyCheckinUpdatedAt] = useState<string | null>(null);
   const pulseAnim = useRef(new Animated.Value(1)).current;
   const recordingAnim = useRef(new Animated.Value(1)).current;
   const processingAnim = useRef(new Animated.Value(1)).current;
@@ -236,16 +244,33 @@ export default function App() {
         setMirrorSourceDate(storedSourceDate);
       }
 
-      const [storedNorthStar, storedWeeklyFocus, storedDailyAlignment, storedCompassUpdatedAt] = await Promise.all([
+      const [
+        storedNorthStar,
+        storedWeeklyFocus,
+        storedDailyAlignment,
+        storedCompassUpdatedAt,
+        storedDailyMove,
+        storedDailyBlocker,
+        storedDailyWhen,
+        storedDailyCheckinUpdatedAt,
+      ] = await Promise.all([
         AsyncStorage.getItem(STORAGE_KEYS.NORTH_STAR),
         AsyncStorage.getItem(STORAGE_KEYS.WEEKLY_FOCUS),
         AsyncStorage.getItem(STORAGE_KEYS.DAILY_ALIGNMENT),
         AsyncStorage.getItem(STORAGE_KEYS.COMPASS_UPDATED_AT),
+        AsyncStorage.getItem(STORAGE_KEYS.DAILY_MOVE),
+        AsyncStorage.getItem(STORAGE_KEYS.DAILY_BLOCKER),
+        AsyncStorage.getItem(STORAGE_KEYS.DAILY_WHEN),
+        AsyncStorage.getItem(STORAGE_KEYS.DAILY_CHECKIN_UPDATED_AT),
       ]);
       setNorthStar(storedNorthStar || '');
       setWeeklyFocus(storedWeeklyFocus || '');
       setDailyAlignment((storedDailyAlignment as 'yes' | 'partial' | 'no' | null) || null);
       setCompassUpdatedAt(storedCompassUpdatedAt || null);
+      setDailyMove(storedDailyMove || '');
+      setDailyBlocker(storedDailyBlocker || '');
+      setDailyWhen(storedDailyWhen || '');
+      setDailyCheckinUpdatedAt(storedDailyCheckinUpdatedAt || null);
     } catch (error) {
       console.error('Error loading data:', error);
     }
@@ -559,6 +584,19 @@ export default function App() {
     ]);
     setCompassUpdatedAt(now);
     setStatusText('Compass saved');
+    setTimeout(() => setStatusText('Hold to record'), 1500);
+  };
+
+  const saveDailyCheckin = async () => {
+    const now = new Date().toISOString();
+    await Promise.all([
+      AsyncStorage.setItem(STORAGE_KEYS.DAILY_MOVE, dailyMove.trim()),
+      AsyncStorage.setItem(STORAGE_KEYS.DAILY_BLOCKER, dailyBlocker.trim()),
+      AsyncStorage.setItem(STORAGE_KEYS.DAILY_WHEN, dailyWhen.trim()),
+      AsyncStorage.setItem(STORAGE_KEYS.DAILY_CHECKIN_UPDATED_AT, now),
+    ]);
+    setDailyCheckinUpdatedAt(now);
+    setStatusText('Daily check-in saved');
     setTimeout(() => setStatusText('Hold to record'), 1500);
   };
 
@@ -1336,7 +1374,43 @@ export default function App() {
 
             <View style={styles.coachCard}>
               <Text style={styles.coachCardTitle}>Daily Check-in</Text>
-              <Text style={styles.coachCardBody}>Pick one meaningful move for today, name the blocker, and set a time. This keeps action concrete without overloading you.</Text>
+              <Text style={styles.coachCardBody}>Turn today into one meaningful move with a realistic blocker and time lock.</Text>
+
+              <Text style={styles.coachInputLabel}>Today’s Move</Text>
+              <TextInput
+                style={styles.coachInput}
+                multiline
+                value={dailyMove}
+                onChangeText={setDailyMove}
+                placeholder="What is the one move that matters today?"
+                placeholderTextColor="#666"
+              />
+
+              <Text style={styles.coachInputLabel}>Likely Blocker</Text>
+              <TextInput
+                style={styles.coachInput}
+                multiline
+                value={dailyBlocker}
+                onChangeText={setDailyBlocker}
+                placeholder="What could derail this?"
+                placeholderTextColor="#666"
+              />
+
+              <Text style={styles.coachInputLabel}>When</Text>
+              <TextInput
+                style={styles.coachInput}
+                value={dailyWhen}
+                onChangeText={setDailyWhen}
+                placeholder="e.g. 16:30 after gym"
+                placeholderTextColor="#666"
+              />
+
+              <TouchableOpacity style={styles.coachSaveButton} onPress={saveDailyCheckin}>
+                <Text style={styles.coachSaveButtonText}>Save Daily Check-in</Text>
+              </TouchableOpacity>
+              {!!dailyCheckinUpdatedAt && (
+                <Text style={styles.coachCardCta}>Last saved: {formatDate(dailyCheckinUpdatedAt)}</Text>
+              )}
             </View>
 
             <View style={styles.coachCard}>

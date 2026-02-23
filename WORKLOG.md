@@ -29,3 +29,7 @@ Format:
 - Added North Star and Weekly Focus editable fields in Coach tab
 - Added Daily Alignment selector and Save Compass action
 - Persisted compass data via AsyncStorage with last-saved timestamp
+
+[2026-02-23T18:50:00Z] DONE — Coach daily check-in flow v1
+- Added interactive Daily Check-in fields (move/blocker/when)
+- Added Save Daily Check-in persistence + last-saved timestamp
