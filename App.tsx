@@ -86,6 +86,7 @@ const getYesterdayDateString = () => {
 
 const ENABLE_COMMITMENT_GATE = false;
 const ENABLE_BOTTLENECK_BANNER = false;
+const BUILD_LABEL = 'coach-a740111';
 
 // Format date for display (e.g., "February 13")
 const formatDateForDisplay = (dateStr: string) => {
@@ -1063,7 +1064,7 @@ export default function App() {
 
       {/* Header */}
       <Text style={styles.header}>Renaissance</Text>
-      <Text style={styles.versionBadge}>ch:{channel} · upd:{updateIdShort}</Text>
+      <Text style={styles.versionBadge}>build:{BUILD_LABEL} · ch:{channel} · upd:{updateIdShort}</Text>
 
       <View style={styles.modeTabs}>
         <TouchableOpacity
