@@ -19,3 +19,8 @@ Format:
 - Added Progress action in Commitments tab for open items
 - Added Last progress metadata line on cards
 - Wired to Supabase logCommitmentProgress helper
+
+[2026-02-23T10:20:00Z] DONE — Coach tab shell (v1)
+- Added Coach tab in top navigation
+- Added Daily Check-in / Weekly Review / Deep Session cards
+- Kept capture flow non-blocking and separate

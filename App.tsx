@@ -122,7 +122,7 @@ export default function App() {
   const [mirrorSourceDate, setMirrorSourceDate] = useState<string | null>(null);
   const [isLoadingMirror, setIsLoadingMirror] = useState(false);
   const [activeFilter, setActiveFilter] = useState<string | null>(null);
-  const [activeTab, setActiveTab] = useState<'capture' | 'commitments'>('capture');
+  const [activeTab, setActiveTab] = useState<'capture' | 'commitments' | 'coach'>('capture');
   const [isMirrorCollapsed, setIsMirrorCollapsed] = useState(true);
   const [bottleneck, setBottleneck] = useState<string | null>(null);
   const [showBottleneckBanner, setShowBottleneckBanner] = useState(true);
@@ -1045,6 +1045,12 @@ export default function App() {
         >
           <Text style={[styles.modeTabText, activeTab === 'commitments' && styles.modeTabTextActive]}>Commitments</Text>
         </TouchableOpacity>
+        <TouchableOpacity
+          style={[styles.modeTab, activeTab === 'coach' && styles.modeTabActive]}
+          onPress={() => setActiveTab('coach')}
+        >
+          <Text style={[styles.modeTabText, activeTab === 'coach' && styles.modeTabTextActive]}>Coach</Text>
+        </TouchableOpacity>
       </View>
 
       {/* Spirit Animal */}
@@ -1220,14 +1226,46 @@ export default function App() {
         <Text style={styles.entryListHeader}>
           {activeTab === 'commitments'
             ? `Commitments (${commitmentItems.length})`
-            : activeFilter
+            : activeTab === 'coach'
+              ? 'Coach Mode'
+              : activeFilter
               ? `${TYPE_LABELS[activeFilter] || activeFilter} (${visibleEntries.filter(e => e.type === activeFilter).length})`
               : visibleEntries.length > 0
                 ? `Brain Dump (${visibleEntries.length})`
                 : 'Your thoughts will appear here'}
         </Text>
 
-        {activeTab === 'commitments' ? (
+        {activeTab === 'coach' ? (
+          <ScrollView
+            style={styles.entryList}
+            showsVerticalScrollIndicator={false}
+            refreshControl={
+              <RefreshControl
+                refreshing={isRefreshing}
+                onRefresh={onRefresh}
+                tintColor="#00FFFF"
+              />
+            }
+          >
+            <View style={styles.coachCard}>
+              <Text style={styles.coachCardTitle}>Daily Check-in</Text>
+              <Text style={styles.coachCardBody}>Pick one meaningful move for today, name the blocker, and set a time. This keeps action concrete without overloading you.</Text>
+              <Text style={styles.coachCardCta}>Coming next: interactive 2–5 min flow</Text>
+            </View>
+
+            <View style={styles.coachCard}>
+              <Text style={styles.coachCardTitle}>Weekly Review</Text>
+              <Text style={styles.coachCardBody}>Review what moved, what stalled, and why. You’ll get one strategic focus for the next week based on real commitment history.</Text>
+              <Text style={styles.coachCardCta}>Coming next: auto-synthesized weekly summary</Text>
+            </View>
+
+            <View style={styles.coachCard}>
+              <Text style={styles.coachCardTitle}>Deep Session</Text>
+              <Text style={styles.coachCardBody}>Therapeutic coaching mode: unpack emotion, reflect on identity patterns, then turn insight into one brave, practical action.</Text>
+              <Text style={styles.coachCardCta}>Coming next: guided conversational flow</Text>
+            </View>
+          </ScrollView>
+        ) : activeTab === 'commitments' ? (
           commitmentItems.length === 0 ? (
             <View style={styles.emptyCommitmentsState}>
               <Text style={styles.emptyCommitmentsText}>No commitments yet. Open a thought and tap "Make this a Commitment".</Text>
@@ -1616,6 +1654,31 @@ const styles = StyleSheet.create({
     fontSize: 12,
     fontWeight: '700',
     letterSpacing: 0.5,
+  },
+  coachCard: {
+    borderWidth: 1,
+    borderColor: '#1f1f1f',
+    borderRadius: 14,
+    padding: 14,
+    marginBottom: 12,
+    backgroundColor: '#0b0b0b',
+  },
+  coachCardTitle: {
+    color: '#00E5FF',
+    fontSize: 15,
+    fontWeight: '700',
+    marginBottom: 6,
+  },
+  coachCardBody: {
+    color: '#E6E6E6',
+    fontSize: 13,
+    lineHeight: 19,
+    marginBottom: 8,
+  },
+  coachCardCta: {
+    color: '#8a8a8a',
+    fontSize: 12,
+    fontStyle: 'italic',
   },
   entryItem: {
     flexDirection: 'row',
