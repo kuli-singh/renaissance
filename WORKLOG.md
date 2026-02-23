@@ -24,3 +24,8 @@ Format:
 - Added Coach tab in top navigation
 - Added Daily Check-in / Weekly Review / Deep Session cards
 - Kept capture flow non-blocking and separate
+
+[2026-02-23T12:05:00Z] DONE — Compass layer v1
+- Added North Star and Weekly Focus editable fields in Coach tab
+- Added Daily Alignment selector and Save Compass action
+- Persisted compass data via AsyncStorage with last-saved timestamp

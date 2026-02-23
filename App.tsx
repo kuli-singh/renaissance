@@ -15,6 +15,7 @@ import {
   Modal,
   ScrollView,
   TouchableOpacity,
+  TextInput,
 } from 'react-native';
 import { transcribeAudio, processThought, generateDailyMirror, renaissanceConfig } from './lib/openai';
 import {
@@ -67,6 +68,10 @@ const STORAGE_KEYS = {
   MORNING_MIRROR: 'renaissance_morning_mirror',
   MORNING_MIRROR_DATE: 'renaissance_morning_mirror_date', // The date the mirror was generated FOR (yesterday)
   MORNING_MIRROR_GENERATED: 'renaissance_morning_mirror_generated', // When it was generated
+  NORTH_STAR: 'renaissance_north_star',
+  WEEKLY_FOCUS: 'renaissance_weekly_focus',
+  DAILY_ALIGNMENT: 'renaissance_daily_alignment',
+  COMPASS_UPDATED_AT: 'renaissance_compass_updated_at',
 };
 
 // Get today's date string for comparison
@@ -133,6 +138,10 @@ export default function App() {
   const channel = Updates.channel || 'unknown-channel';
   const [gateCountdown, setGateCountdown] = useState(3);
   const [gateOpenCount, setGateOpenCount] = useState(0);
+  const [northStar, setNorthStar] = useState('');
+  const [weeklyFocus, setWeeklyFocus] = useState('');
+  const [dailyAlignment, setDailyAlignment] = useState<'yes' | 'partial' | 'no' | null>(null);
+  const [compassUpdatedAt, setCompassUpdatedAt] = useState<string | null>(null);
   const pulseAnim = useRef(new Animated.Value(1)).current;
   const recordingAnim = useRef(new Animated.Value(1)).current;
   const processingAnim = useRef(new Animated.Value(1)).current;
@@ -225,6 +234,17 @@ export default function App() {
         setMorningMirror(storedMirror);
         setMirrorSourceDate(storedSourceDate);
       }
+
+      const [storedNorthStar, storedWeeklyFocus, storedDailyAlignment, storedCompassUpdatedAt] = await Promise.all([
+        AsyncStorage.getItem(STORAGE_KEYS.NORTH_STAR),
+        AsyncStorage.getItem(STORAGE_KEYS.WEEKLY_FOCUS),
+        AsyncStorage.getItem(STORAGE_KEYS.DAILY_ALIGNMENT),
+        AsyncStorage.getItem(STORAGE_KEYS.COMPASS_UPDATED_AT),
+      ]);
+      setNorthStar(storedNorthStar || '');
+      setWeeklyFocus(storedWeeklyFocus || '');
+      setDailyAlignment((storedDailyAlignment as 'yes' | 'partial' | 'no' | null) || null);
+      setCompassUpdatedAt(storedCompassUpdatedAt || null);
     } catch (error) {
       console.error('Error loading data:', error);
     }
@@ -526,6 +546,19 @@ export default function App() {
     setIsRefreshing(true);
     await loadData();
     setIsRefreshing(false);
+  };
+
+  const saveCompass = async () => {
+    const now = new Date().toISOString();
+    await Promise.all([
+      AsyncStorage.setItem(STORAGE_KEYS.NORTH_STAR, northStar.trim()),
+      AsyncStorage.setItem(STORAGE_KEYS.WEEKLY_FOCUS, weeklyFocus.trim()),
+      AsyncStorage.setItem(STORAGE_KEYS.DAILY_ALIGNMENT, dailyAlignment || ''),
+      AsyncStorage.setItem(STORAGE_KEYS.COMPASS_UPDATED_AT, now),
+    ]);
+    setCompassUpdatedAt(now);
+    setStatusText('Compass saved');
+    setTimeout(() => setStatusText('Hold to record'), 1500);
   };
 
   const isDeploymentNoise = (title?: string | null) => {
@@ -1248,21 +1281,71 @@ export default function App() {
             }
           >
             <View style={styles.coachCard}>
+              <Text style={styles.coachCardTitle}>Compass Layer</Text>
+              <Text style={styles.coachCardBody}>Define your North Star, this week’s focus, and whether today aligned. This is your anti-drift anchor.</Text>
+
+              <Text style={styles.coachInputLabel}>North Star</Text>
+              <TextInput
+                style={styles.coachInput}
+                multiline
+                value={northStar}
+                onChangeText={setNorthStar}
+                placeholder="Who am I becoming?"
+                placeholderTextColor="#666"
+              />
+
+              <Text style={styles.coachInputLabel}>Weekly Focus</Text>
+              <TextInput
+                style={styles.coachInput}
+                multiline
+                value={weeklyFocus}
+                onChangeText={setWeeklyFocus}
+                placeholder="What matters most this week?"
+                placeholderTextColor="#666"
+              />
+
+              <Text style={styles.coachInputLabel}>Daily Alignment</Text>
+              <View style={styles.alignmentRow}>
+                {(['yes', 'partial', 'no'] as const).map((k) => (
+                  <TouchableOpacity
+                    key={k}
+                    style={[
+                      styles.alignmentPill,
+                      dailyAlignment === k && styles.alignmentPillActive,
+                    ]}
+                    onPress={() => setDailyAlignment(k)}
+                  >
+                    <Text style={[
+                      styles.alignmentPillText,
+                      dailyAlignment === k && styles.alignmentPillTextActive,
+                    ]}>
+                      {k === 'yes' ? 'Aligned' : k === 'partial' ? 'Partially' : 'Off-track'}
+                    </Text>
+                  </TouchableOpacity>
+                ))}
+              </View>
+
+              <TouchableOpacity style={styles.coachSaveButton} onPress={saveCompass}>
+                <Text style={styles.coachSaveButtonText}>Save Compass</Text>
+              </TouchableOpacity>
+              {!!compassUpdatedAt && (
+                <Text style={styles.coachCardCta}>Last saved: {formatDate(compassUpdatedAt)}</Text>
+              )}
+            </View>
+
+            <View style={styles.coachCard}>
               <Text style={styles.coachCardTitle}>Daily Check-in</Text>
               <Text style={styles.coachCardBody}>Pick one meaningful move for today, name the blocker, and set a time. This keeps action concrete without overloading you.</Text>
-              <Text style={styles.coachCardCta}>Coming next: interactive 2–5 min flow</Text>
             </View>
 
             <View style={styles.coachCard}>
               <Text style={styles.coachCardTitle}>Weekly Review</Text>
               <Text style={styles.coachCardBody}>Review what moved, what stalled, and why. You’ll get one strategic focus for the next week based on real commitment history.</Text>
-              <Text style={styles.coachCardCta}>Coming next: auto-synthesized weekly summary</Text>
             </View>
 
             <View style={styles.coachCard}>
               <Text style={styles.coachCardTitle}>Deep Session</Text>
               <Text style={styles.coachCardBody}>Therapeutic coaching mode: unpack emotion, reflect on identity patterns, then turn insight into one brave, practical action.</Text>
-              <Text style={styles.coachCardCta}>Coming next: guided conversational flow</Text>
             </View>
           </ScrollView>
         ) : activeTab === 'commitments' ? (
@@ -1679,6 +1762,63 @@ const styles = StyleSheet.create({
     color: '#8a8a8a',
     fontSize: 12,
     fontStyle: 'italic',
+  },
+  coachInputLabel: {
+    color: '#B8B8B8',
+    fontSize: 12,
+    marginBottom: 4,
+    marginTop: 4,
+  },
+  coachInput: {
+    borderWidth: 1,
+    borderColor: '#2a2a2a',
+    borderRadius: 10,
+    padding: 10,
+    color: '#FFFFFF',
+    fontSize: 13,
+    marginBottom: 8,
+    minHeight: 52,
+    textAlignVertical: 'top',
+    backgroundColor: '#101010',
+  },
+  alignmentRow: {
+    flexDirection: 'row',
+    gap: 8,
+    marginBottom: 10,
+  },
+  alignmentPill: {
+    borderWidth: 1,
+    borderColor: '#444',
+    borderRadius: 14,
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+    backgroundColor: '#111',
+  },
+  alignmentPillActive: {
+    borderColor: '#00E5FF',
+    backgroundColor: 'rgba(0,229,255,0.15)',
+  },
+  alignmentPillText: {
+    color: '#AAA',
+    fontSize: 12,
+    fontWeight: '600',
+  },
+  alignmentPillTextActive: {
+    color: '#00E5FF',
+  },
+  coachSaveButton: {
+    marginTop: 2,
+    backgroundColor: '#00E5FF',
+    borderRadius: 10,
+    paddingVertical: 10,
+    alignItems: 'center',
+    marginBottom: 8,
+  },
+  coachSaveButtonText: {
+    color: '#001217',
+    fontWeight: '700',
+    fontSize: 13,
+    letterSpacing: 0.4,
   },
   entryItem: {
     flexDirection: 'row',
