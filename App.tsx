@@ -282,6 +282,21 @@ export default function App() {
   }, [loadData]);
 
   useEffect(() => {
+    if (!Updates.isEnabled) return;
+    (async () => {
+      try {
+        const check = await Updates.checkForUpdateAsync();
+        if (check.isAvailable) {
+          await Updates.fetchUpdateAsync();
+          await Updates.reloadAsync();
+        }
+      } catch (_) {
+        // non-critical — silently ignore
+      }
+    })();
+  }, []);
+
+  useEffect(() => {
     (async () => {
       await Audio.requestPermissionsAsync();
       await Audio.setAudioModeAsync({
