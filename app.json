@@ -22,8 +22,7 @@
         "foregroundImage": "./assets/adaptive-icon.png",
         "backgroundColor": "#000000"
       },
-      "package": "com.kuli.renaissance",
-      "versionCode": 2
+      "package": "com.kuli.renaissance"
     },
     "web": {
       "favicon": "./assets/favicon.png",
@@ -34,7 +33,7 @@
     },
     "updates": {
       "url": "https://u.expo.dev/e542c534-dc75-430e-b0c0-4b9cd7db5693",
-      "checkAutomatically": "ON_ERROR_RECOVERY",
+      "checkAutomatically": "ON_LOAD",
       "fallbackToCacheTimeout": 0
     },
     "extra": {

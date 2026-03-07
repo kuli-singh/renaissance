@@ -29,6 +29,7 @@ import {
   createCommitment,
   updateCommitmentStatus,
   logCommitmentProgress,
+  deleteEntry,
 } from './lib/supabase';
 
 // Fix voice-to-text name errors in display
@@ -642,6 +643,14 @@ export default function App() {
     setSelectedEntry(null);
   };
 
+  const handleDeleteEntry = async (entry: AnimatedEntry) => {
+    const ok = await deleteEntry(entry.id);
+    if (ok) {
+      setEntries(prev => prev.filter(e => e.id !== entry.id));
+      closeDetail();
+    }
+  };
+
   const formatDate = (dateString: string) => {
     const date = new Date(dateString);
     return date.toLocaleDateString('en-US', {
@@ -1042,6 +1051,14 @@ export default function App() {
                 </Text>
               </View>
             </ScrollView>
+
+            {/* Delete button */}
+            <TouchableOpacity
+              onPress={() => handleDeleteEntry(selectedEntry)}
+              style={styles.deleteEntryButton}
+            >
+              <Text style={styles.deleteEntryButtonText}>🗑  Delete this entry</Text>
+            </TouchableOpacity>
           </View>
         </View>
       </Modal>
@@ -2505,5 +2522,19 @@ const styles = StyleSheet.create({
     color: '#FFFFFF',
     fontSize: 18,
     lineHeight: 28,
+  },
+  deleteEntryButton: {
+    marginTop: 12,
+    marginHorizontal: 4,
+    paddingVertical: 12,
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: '#FF4444',
+    alignItems: 'center',
+  },
+  deleteEntryButtonText: {
+    color: '#FF4444',
+    fontSize: 14,
+    fontWeight: '600',
   },
 });

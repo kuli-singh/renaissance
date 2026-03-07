@@ -146,6 +146,19 @@ export async function insertEntry(entry: {
   return data;
 }
 
+export async function deleteEntry(id: string): Promise<boolean> {
+  const { error } = await supabase
+    .from('entries')
+    .delete()
+    .eq('id', id);
+
+  if (error) {
+    console.error('[Supabase] Delete error:', error.message);
+    return false;
+  }
+  return true;
+}
+
 export async function fetchEntries(): Promise<Entry[]> {
   const { data, error } = await supabase
     .from('entries')
