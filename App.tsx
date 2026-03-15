@@ -1405,16 +1405,15 @@ export default function App() {
         ]}
       >
         <View style={styles.spiritAnimalTopRow}>
-          <View style={styles.spiritAnimalSide}>
-            <Text style={styles.spiritAnimalLabel}>Spirit Animal</Text>
-          </View>
+          <View style={styles.spiritAnimalHeaderSpacer} />
           <View style={styles.spiritAnimalHeader}>
-            <Text style={styles.spiritAnimalIcon}>{spiritAnimalIcon}</Text>
+            <Text style={styles.spiritAnimalLabel}>Spirit Animal</Text>
             <View style={styles.spiritAnimalTitleGroup}>
+              <Text style={styles.spiritAnimalIcon}>{spiritAnimalIcon}</Text>
               <Text style={styles.spiritAnimal}>{spiritAnimalTitle}</Text>
             </View>
           </View>
-          <View style={[styles.spiritAnimalSide, styles.spiritAnimalToggle]}>
+          <View style={styles.spiritAnimalToggle}>
             <Text style={styles.spiritAnimalChevron}>
               {isSpiritAnimalCollapsed ? '▼' : '▲'}
             </Text>
@@ -1838,31 +1837,34 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
   },
-  spiritAnimalSide: {
-    flex: 1,
+  spiritAnimalHeaderSpacer: {
+    width: 24,
   },
   spiritAnimalHeader: {
-    flex: 1.5,
+    flex: 1,
+    justifyContent: 'center',
+  },
+  spiritAnimalTitleGroup: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
-  },
-  spiritAnimalIcon: {
-    fontSize: 20,
-    marginRight: 8,
-  },
-  spiritAnimalTitleGroup: {
-    alignItems: 'center',
+    marginTop: 4,
   },
   spiritAnimalToggle: {
+    width: 24,
     alignItems: 'flex-end',
+    justifyContent: 'center',
   },
   spiritAnimalLabel: {
     fontSize: 12,
     color: '#666666',
     textTransform: 'uppercase',
     letterSpacing: 1.5,
-    textAlign: 'left',
+    textAlign: 'center',
+  },
+  spiritAnimalIcon: {
+    fontSize: 20,
+    marginRight: 8,
   },
   spiritAnimal: {
     fontSize: 15,
