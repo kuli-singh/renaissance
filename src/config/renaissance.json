@@ -80,14 +80,14 @@
   "spiritAnimals": {
     "default": "🐢 Steady Turtle",
     "mappings": [
-      { "condition": "zombieHeavy", "animal": "🦥 Sleepy Sloth" },
-      { "condition": "ventDominant", "animal": "🐉 Processing Dragon" },
-      { "condition": "dreamDominant", "animal": "🦅 Dreaming Eagle" },
-      { "condition": "logicDominant", "animal": "🦉 Thinking Owl" },
-      { "condition": "kitchenActive", "animal": "🐻 Kitchen Bear" },
-      { "condition": "vitalityDominant", "animal": "🌿 Forest Walker" },
-      { "condition": "highEnergyDominant", "animal": "⚡ Lightning Fox" },
-      { "condition": "momentumHeavy", "animal": "🐝 Busy Bee" }
+      { "condition": "zombieHeavy", "animal": "😴🦥 Sleepy Sloth" },
+      { "condition": "ventDominant", "animal": "🔥🐉 Processing Dragon" },
+      { "condition": "dreamDominant", "animal": "✨🦅 Dreaming Eagle" },
+      { "condition": "logicDominant", "animal": "🧠🦉 Thinking Owl" },
+      { "condition": "kitchenActive", "animal": "🍳🐻 Kitchen Bear" },
+      { "condition": "vitalityDominant", "animal": "🌿🦌 Forest Deer" },
+      { "condition": "highEnergyDominant", "animal": "⚡🦊 Lightning Fox" },
+      { "condition": "momentumHeavy", "animal": "⚙️🐝 Busy Bee" }
     ]
   },
   "prompts": {

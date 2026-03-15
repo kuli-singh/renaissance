@@ -391,28 +391,28 @@ export async function getTodaysSpiritAnimal(): Promise<string> {
     .sort((a, b) => b[1] - a[1])[0]?.[0];
 
   if (zombieCount > data.length / 2) {
-    return '🦥 Sleepy Sloth';
+    return '😴🦥 Sleepy Sloth';
   }
   if (dominantCategory === 'kitchen' && kitchenCount > 0) {
-    return '🐻 Kitchen Bear';
+    return '🍳🐻 Kitchen Bear';
   }
   if (dominantCategory === 'vent') {
-    return '🐉 Processing Dragon';
+    return '🔥🐉 Processing Dragon';
   }
   if (dominantCategory === 'logic' && logicCount > 0) {
-    return '🦉 Thinking Owl';
+    return '🧠🦉 Thinking Owl';
   }
   if (dominantCategory === 'vitality') {
-    return '🌿 Forest Walker';
+    return '🌿🦌 Forest Deer';
   }
   if (dominantCategory === 'dream') {
-    return '🦅 Dreaming Eagle';
+    return '✨🦅 Dreaming Eagle';
   }
   if (highCount > data.length / 2) {
-    return '⚡ Lightning Fox';
+    return '⚡🦊 Lightning Fox';
   }
   if (momentumCount >= 3) {
-    return '🐝 Busy Bee';
+    return '⚙️🐝 Busy Bee';
   }
   if (lowCount >= data.length / 2) {
     return '🐢 Steady Turtle';

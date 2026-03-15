@@ -178,8 +178,9 @@ export default function App() {
   const [mirrorSourceDate, setMirrorSourceDate] = useState<string | null>(null);
   const [isLoadingMirror, setIsLoadingMirror] = useState(false);
   const [activeFilter, setActiveFilter] = useState<string | null>(null);
-  const [activeTab, setActiveTab] = useState<'capture' | 'focus' | 'thoughts' | 'commitments'>('capture');
+  const [activeTab, setActiveTab] = useState<'capture' | 'focus' | 'commitments'>('capture');
   const [isMirrorCollapsed, setIsMirrorCollapsed] = useState(true);
+  const [isSpiritAnimalCollapsed, setIsSpiritAnimalCollapsed] = useState(true);
   const [bottleneck, setBottleneck] = useState<string | null>(null);
   const [showBottleneckBanner, setShowBottleneckBanner] = useState(true);
   // commitmentMap: keyed by thought_id for O(1) lookups in render
@@ -1379,12 +1380,6 @@ export default function App() {
           <Text style={[styles.modeTabText, activeTab === 'focus' && styles.modeTabTextActive]}>Focus</Text>
         </TouchableOpacity>
         <TouchableOpacity
-          style={[styles.modeTab, activeTab === 'thoughts' && styles.modeTabActive]}
-          onPress={() => setActiveTab('thoughts')}
-        >
-          <Text style={[styles.modeTabText, activeTab === 'thoughts' && styles.modeTabTextActive]}>Thoughts</Text>
-        </TouchableOpacity>
-        <TouchableOpacity
           style={[styles.modeTab, activeTab === 'commitments' && styles.modeTabActive]}
           onPress={() => setActiveTab('commitments')}
         >
@@ -1394,9 +1389,27 @@ export default function App() {
 
       {/* Spirit Animal */}
       <View style={styles.spiritAnimalContainer}>
-        <Text style={styles.spiritAnimalLabel}>Spirit Animal</Text>
-        <Text style={styles.spiritAnimal}>{spiritAnimal}</Text>
-        <Text style={styles.spiritAnimalReading}>{spiritAnimalReading}</Text>
+        <View style={styles.spiritAnimalHeader}>
+          <View style={styles.spiritAnimalTitleGroup}>
+            <Text style={styles.spiritAnimalLabel}>Spirit Animal</Text>
+            <Text style={styles.spiritAnimal}>{spiritAnimal}</Text>
+          </View>
+          <TouchableOpacity
+            activeOpacity={0.8}
+            onPress={() => {
+              Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+              setIsSpiritAnimalCollapsed(!isSpiritAnimalCollapsed);
+            }}
+            style={styles.spiritAnimalToggle}
+          >
+            <Text style={styles.spiritAnimalChevron}>
+              {isSpiritAnimalCollapsed ? '▼' : '▲'}
+            </Text>
+          </TouchableOpacity>
+        </View>
+        {!isSpiritAnimalCollapsed && (
+          <Text style={styles.spiritAnimalReading}>{spiritAnimalReading}</Text>
+        )}
       </View>
 
       {/* Accountability Banner - Bottleneck Detector */}
@@ -1519,13 +1532,11 @@ export default function App() {
             ? `Commitments (${commitmentItems.length})`
             : activeTab === 'focus'
               ? 'Focus Progression'
-              : activeTab === 'thoughts'
-                ? activeFilter
-                  ? `${TYPE_LABELS[activeFilter] || activeFilter} (${filteredCaptureEntries.length})`
-                  : filteredCaptureEntries.length > 0
-                    ? `Thoughts (${filteredCaptureEntries.length})`
-                    : 'Your thoughts will appear here'
-                : 'Today\'s Progression'
+              : activeFilter
+                ? `${TYPE_LABELS[activeFilter] || activeFilter} (${filteredCaptureEntries.length})`
+                : filteredCaptureEntries.length > 0
+                  ? `Thoughts (${filteredCaptureEntries.length})`
+                  : 'Your thoughts will appear here'
         }
         </Text>
 
@@ -1542,23 +1553,6 @@ export default function App() {
             }
           >
             <View style={styles.progressionCard}>
-              <Text style={styles.progressionEyebrow}>Morning</Text>
-              <Text style={styles.progressionTitle}>Choose the tiniest move worth making today.</Text>
-              <Text style={styles.progressionBody}>
-                Keep the full landscape in Commitments. Use Capture to stay honest and Focus to narrow without losing the bigger picture.
-              </Text>
-
-              {!!focusRecommendation?.narrative?.trim() && (
-                <View style={styles.progressionNudgeCard}>
-                  <Text style={styles.progressionNudgeLabel}>
-                    {focusRecommendation.phase ? `${focusRecommendation.phase} nudge` : 'Daily nudge'}
-                  </Text>
-                  <Text style={styles.progressionNudgeText} numberOfLines={4}>
-                    {focusRecommendation.narrative.trim()}
-                  </Text>
-                </View>
-              )}
-
               <View style={styles.progressionPrimaryBlock}>
                 <Text style={styles.progressionSectionLabel}>Today&apos;s next move</Text>
                 {suggestedStarterStep ? (
@@ -1586,22 +1580,66 @@ export default function App() {
                   <Text style={styles.progressionEmptyText}>No active step yet. Use Focus to pick one 5-minute starter.</Text>
                 )}
               </View>
-
-              <View style={styles.progressionTimeline}>
-                <View style={styles.progressionStep}>
-                  <Text style={styles.progressionStepLabel}>Morning</Text>
-                  <Text style={styles.progressionStepText}>Pick the one tiny move that matters.</Text>
-                </View>
-                <View style={styles.progressionStep}>
-                  <Text style={styles.progressionStepLabel}>Midday</Text>
-                  <Text style={styles.progressionStepText}>If ignored, Renaissance should make it smaller, not louder.</Text>
-                </View>
-                <View style={styles.progressionStep}>
-                  <Text style={styles.progressionStepLabel}>Evening</Text>
-                  <Text style={styles.progressionStepText}>Log what moved, what blocked you, and what survives tomorrow.</Text>
-                </View>
-              </View>
             </View>
+
+            <Text style={styles.captureThoughtsHeader}>Thoughts</Text>
+            <ScrollView
+              horizontal
+              showsHorizontalScrollIndicator={false}
+              style={styles.filterBar}
+              contentContainerStyle={styles.filterBarContent}
+            >
+              <TouchableOpacity
+                style={[
+                  styles.filterChip,
+                  activeFilter === null && styles.filterChipActive,
+                ]}
+                onPress={() => {
+                  Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+                  setActiveFilter(null);
+                }}
+              >
+                <Text style={[
+                  styles.filterChipText,
+                  activeFilter === null && styles.filterChipTextActive,
+                ]}>
+                  All
+                </Text>
+              </TouchableOpacity>
+              {renaissanceConfig.categories.map((category) => (
+                <TouchableOpacity
+                  key={category.id}
+                  style={[
+                    styles.filterChip,
+                    activeFilter === category.id && styles.filterChipActive,
+                    activeFilter === category.id && { borderColor: category.color },
+                  ]}
+                  onPress={() => {
+                    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+                    setActiveFilter(category.id);
+                  }}
+                >
+                  <Text style={styles.filterChipIcon}>{category.icon}</Text>
+                  <Text style={[
+                    styles.filterChipText,
+                    activeFilter === category.id && styles.filterChipTextActive,
+                    activeFilter === category.id && { color: category.color },
+                  ]}>
+                    {category.label}
+                  </Text>
+                </TouchableOpacity>
+              ))}
+            </ScrollView>
+
+            <FlatList
+              data={filteredCaptureEntries}
+              renderItem={renderEntry}
+              keyExtractor={(item) => item.id}
+              style={styles.captureThoughtsList}
+              scrollEnabled={false}
+              showsVerticalScrollIndicator={false}
+              ListFooterComponent={filteredCaptureEntries.length > 0 ? renderCaptureListFooter : null}
+            />
           </ScrollView>
         ) : activeTab === 'focus' ? (
           <ScrollView
@@ -1713,72 +1751,7 @@ export default function App() {
               }
             />
           )
-        ) : (
-          <>
-          <ScrollView
-            horizontal
-            showsHorizontalScrollIndicator={false}
-            style={styles.filterBar}
-            contentContainerStyle={styles.filterBarContent}
-          >
-            <TouchableOpacity
-              style={[
-                styles.filterChip,
-                activeFilter === null && styles.filterChipActive,
-              ]}
-              onPress={() => {
-                Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-                setActiveFilter(null);
-              }}
-            >
-              <Text style={[
-                styles.filterChipText,
-                activeFilter === null && styles.filterChipTextActive,
-              ]}>
-                All
-              </Text>
-            </TouchableOpacity>
-            {renaissanceConfig.categories.map((category) => (
-              <TouchableOpacity
-                key={category.id}
-                style={[
-                  styles.filterChip,
-                  activeFilter === category.id && styles.filterChipActive,
-                  activeFilter === category.id && { borderColor: category.color },
-                ]}
-                onPress={() => {
-                  Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-                  setActiveFilter(category.id);
-                }}
-              >
-                <Text style={styles.filterChipIcon}>{category.icon}</Text>
-                <Text style={[
-                  styles.filterChipText,
-                  activeFilter === category.id && styles.filterChipTextActive,
-                  activeFilter === category.id && { color: category.color },
-                ]}>
-                  {category.label}
-                </Text>
-              </TouchableOpacity>
-            ))}
-          </ScrollView>
-          <FlatList
-            data={filteredCaptureEntries}
-            renderItem={renderEntry}
-            keyExtractor={(item) => item.id}
-            style={styles.entryList}
-            showsVerticalScrollIndicator={false}
-            ListFooterComponent={filteredCaptureEntries.length > 0 ? renderCaptureListFooter : null}
-            refreshControl={
-              <RefreshControl
-                refreshing={isRefreshing}
-                onRefresh={onRefresh}
-                tintColor="#00FFFF"
-              />
-            }
-          />
-          </>
-        )}
+        ) : null}
       </View>
 
       {/* Detail Modal */}
@@ -1842,14 +1815,27 @@ const styles = StyleSheet.create({
     color: CYAN,
   },
   spiritAnimalContainer: {
-    alignItems: 'center',
     marginBottom: 16,
     paddingHorizontal: 20,
-    paddingVertical: 8,
+    paddingVertical: 10,
     backgroundColor: 'rgba(0, 255, 255, 0.05)',
     borderRadius: 12,
     borderWidth: 1,
     borderColor: 'rgba(0, 255, 255, 0.1)',
+  },
+  spiritAnimalHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+  },
+  spiritAnimalTitleGroup: {
+    flex: 1,
+    alignItems: 'center',
+  },
+  spiritAnimalToggle: {
+    paddingVertical: 6,
+    paddingLeft: 12,
+    paddingRight: 4,
   },
   spiritAnimalLabel: {
     fontSize: 10,
@@ -1870,6 +1856,12 @@ const styles = StyleSheet.create({
     textAlign: 'center',
     marginTop: 8,
     maxWidth: 300,
+  },
+  spiritAnimalChevron: {
+    color: '#88C9D1',
+    fontSize: 12,
+    fontWeight: '700',
+    marginLeft: 12,
   },
   // Accountability Banner
   accountabilityBanner: {
@@ -2054,61 +2046,16 @@ const styles = StyleSheet.create({
   },
   progressionCard: {
     borderWidth: 1,
-    borderColor: 'rgba(0, 229, 255, 0.18)',
+    borderColor: 'rgba(0, 229, 255, 0.14)',
     borderRadius: 16,
-    padding: 16,
+    padding: 14,
     backgroundColor: '#0b0f10',
-    marginBottom: 16,
-  },
-  progressionEyebrow: {
-    color: '#00E5FF',
-    fontSize: 11,
-    fontWeight: '700',
-    letterSpacing: 1.6,
-    textTransform: 'uppercase',
-    marginBottom: 8,
-  },
-  progressionTitle: {
-    color: '#FFFFFF',
-    fontSize: 18,
-    lineHeight: 24,
-    fontWeight: '600',
-    marginBottom: 8,
-  },
-  progressionBody: {
-    color: '#A7B4B8',
-    fontSize: 13,
-    lineHeight: 20,
-    marginBottom: 14,
+    marginBottom: 18,
   },
   progressionPrimaryBlock: {
-    borderWidth: 1,
-    borderColor: 'rgba(255,255,255,0.08)',
     borderRadius: 14,
     padding: 14,
     backgroundColor: 'rgba(255,255,255,0.03)',
-    marginBottom: 14,
-  },
-  progressionNudgeCard: {
-    borderWidth: 1,
-    borderColor: 'rgba(255, 107, 107, 0.18)',
-    borderRadius: 14,
-    padding: 12,
-    backgroundColor: 'rgba(255, 107, 107, 0.05)',
-    marginBottom: 14,
-  },
-  progressionNudgeLabel: {
-    color: '#FF9B9B',
-    fontSize: 11,
-    fontWeight: '700',
-    letterSpacing: 1.1,
-    textTransform: 'uppercase',
-    marginBottom: 6,
-  },
-  progressionNudgeText: {
-    color: '#F3E6E6',
-    fontSize: 13,
-    lineHeight: 19,
   },
   progressionSectionLabel: {
     color: '#88C9D1',
@@ -2120,15 +2067,15 @@ const styles = StyleSheet.create({
   },
   progressionPrimaryText: {
     color: '#FFFFFF',
-    fontSize: 17,
-    lineHeight: 24,
+    fontSize: 15,
+    lineHeight: 21,
     fontWeight: '600',
     marginBottom: 8,
   },
   progressionMeta: {
     color: '#9AA7AA',
-    fontSize: 12,
-    lineHeight: 18,
+    fontSize: 11,
+    lineHeight: 16,
     marginTop: 2,
   },
   progressionEmptyText: {
@@ -2137,24 +2084,14 @@ const styles = StyleSheet.create({
     lineHeight: 20,
     fontStyle: 'italic',
   },
-  progressionTimeline: {
-    gap: 10,
+  captureThoughtsHeader: {
+    color: '#D7F5F8',
+    fontSize: 18,
+    fontWeight: '600',
+    marginBottom: 10,
   },
-  progressionStep: {
-    borderLeftWidth: 2,
-    borderLeftColor: 'rgba(0, 229, 255, 0.35)',
-    paddingLeft: 12,
-  },
-  progressionStepLabel: {
-    color: '#D8F8FB',
-    fontSize: 13,
-    fontWeight: '700',
-    marginBottom: 2,
-  },
-  progressionStepText: {
-    color: '#90A2A6',
-    fontSize: 13,
-    lineHeight: 18,
+  captureThoughtsList: {
+    flexGrow: 0,
   },
   entryList: {
     flex: 1,
