@@ -1527,18 +1527,13 @@ export default function App() {
 
       {/* Entry List - Fills remaining space */}
       <View style={styles.entryListContainer}>
-        <Text style={styles.entryListHeader}>
-          {activeTab === 'commitments'
-            ? `Commitments (${commitmentItems.length})`
-            : activeTab === 'focus'
-              ? 'Focus Progression'
-              : activeFilter
-                ? `${TYPE_LABELS[activeFilter] || activeFilter} (${filteredCaptureEntries.length})`
-                : filteredCaptureEntries.length > 0
-                  ? `Thoughts (${filteredCaptureEntries.length})`
-                  : 'Your thoughts will appear here'
-        }
-        </Text>
+        {activeTab !== 'capture' && (
+          <Text style={styles.entryListHeader}>
+            {activeTab === 'commitments'
+              ? `Commitments (${commitmentItems.length})`
+              : 'Focus Progression'}
+          </Text>
+        )}
 
         {activeTab === 'capture' ? (
           <ScrollView
@@ -1581,8 +1576,6 @@ export default function App() {
                 )}
               </View>
             </View>
-
-            <Text style={styles.captureThoughtsHeader}>Thoughts</Text>
             <ScrollView
               horizontal
               showsHorizontalScrollIndicator={false}
@@ -2083,12 +2076,6 @@ const styles = StyleSheet.create({
     fontSize: 14,
     lineHeight: 20,
     fontStyle: 'italic',
-  },
-  captureThoughtsHeader: {
-    color: '#D7F5F8',
-    fontSize: 18,
-    fontWeight: '600',
-    marginBottom: 10,
   },
   captureThoughtsList: {
     flexGrow: 0,
