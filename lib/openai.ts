@@ -1,10 +1,13 @@
 import renaissanceConfig from '../src/config/renaissance.json';
+import { deriveStarterStep, deriveValueInsights } from './values';
 
 export interface ExtractedItem {
   title: string;
   type: 'vitality' | 'momentum' | 'vent' | 'logic' | 'dream' | 'kitchen';
   energy: 'high' | 'low' | 'zombie';
   strategic_insight: string;
+  suggest_commitment?: boolean;
+  commitment_reasoning?: string | null;
 }
 
 export interface ProcessedThought {
@@ -14,6 +17,33 @@ export interface ProcessedThought {
   energy: 'high' | 'low' | 'zombie';
   embedding: number[];
   content: string;
+  suggestCommitment: boolean;
+  commitmentReasoning?: string | null;
+}
+
+export interface FocusRecommendationContextItem {
+  title: string;
+  type: string;
+  energy: string;
+  created_at?: string;
+}
+
+export interface FocusRecommendationContext {
+  phase: 'morning' | 'midday' | 'evening';
+  northStar?: string | null;
+  weeklyFocus?: string | null;
+  spiritAnimal?: string | null;
+  recentEntries: FocusRecommendationContextItem[];
+  openCommitments: FocusRecommendationContextItem[];
+}
+
+export interface GeneratedFocusRecommendation {
+  recommended_focus_title: string | null;
+  recommended_focus_reason: string;
+  starter_step: string;
+  narrative: string;
+  phase: 'morning' | 'midday' | 'evening';
+  values_summary: string;
 }
 
 const getApiKey = () => {
@@ -109,9 +139,13 @@ RULES:
 - The "strategic_insight" must connect this thought to overall well-being or growth in ONE sentence.
 - Example insight: "This errand is blocking three bigger things - knock it out."
 - Extract the ESSENCE, not the rambling.
+- Set "suggest_commitment" to true only when the thought implies a concrete action, promise, follow-up, or accountable next step.
+- Keep "suggest_commitment" false for pure vents, pure reflection, or abstract observations with no clear action.
+- If "suggest_commitment" is true, add a short "commitment_reasoning" sentence explaining why this should become a commitment.
+- If "suggest_commitment" is false, set "commitment_reasoning" to null.
 
 Return ONLY a JSON array:
-[{"title": "concise title", "type": "category", "energy": "level", "strategic_insight": "blunt 1-sentence insight"}]`;
+[{"title": "concise title", "type": "category", "energy": "level", "strategic_insight": "blunt 1-sentence insight", "suggest_commitment": false, "commitment_reasoning": null}]`;
 
   const response = await fetch('https://api.openai.com/v1/chat/completions', {
     method: 'POST',
@@ -172,21 +206,33 @@ export async function processThought(transcription: string): Promise<ProcessedTh
     energy: item.energy,
     embedding: embeddings[index],
     content: transcription,
+    suggestCommitment: !!item.suggest_commitment,
+    commitmentReasoning: item.commitment_reasoning || null,
   }));
 }
 
 // Legacy export for backwards compatibility
 export const processWithGPT = processWithStrategist;
 
-export async function generateDailyMirror(ventEntries: { content: string; created_at: string }[]): Promise<string> {
-  if (ventEntries.length === 0) {
-    return "No thoughts to reflect on today. That's okay too.";
+export async function generateDailyMirror(entries: {
+  title: string;
+  type: string;
+  energy: string;
+  content?: string;
+  insight?: string;
+  created_at: string;
+}[]): Promise<string> {
+  if (entries.length === 0) {
+    return "Yesterday was quiet. Treat that as data, not failure. Pick one deliberate move for today.";
   }
 
   const apiKey = getApiKey();
 
-  const ventSummary = ventEntries
-    .map((entry, i) => `${i + 1}. "${entry.content}"`)
+  const daySummary = entries
+    .map((entry, i) => {
+      const detail = entry.content || entry.insight || entry.title;
+      return `${i + 1}. [${entry.type} | ${entry.energy}] ${entry.title}: "${detail}"`;
+    })
     .join('\n');
 
   const response = await fetch('https://api.openai.com/v1/chat/completions', {
@@ -200,15 +246,19 @@ export async function generateDailyMirror(ventEntries: { content: string; create
       messages: [
         {
           role: 'system',
-          content: `You are a blunt but caring companion. Given yesterday's vent entries, provide a 2-sentence synthesis. Be direct. Acknowledge without coddling. Speak to them like a wise friend who doesn't sugarcoat.`
+          content: `You are a blunt but caring companion. Given a full day of captured thoughts, write a holistic daily mirror in 3 short sentences.
+Sentence 1: name the dominant emotional or practical themes.
+Sentence 2: reflect the day's energy and any tension or contradiction.
+Sentence 3: give one grounded focus for today.
+Use the full day, not just vents. Be direct, humane, and specific. Do not sound mystical or esoteric.`
         },
         {
           role: 'user',
-          content: `Yesterday's processing:\n\n${ventSummary}`
+          content: `Yesterday's capture log:\n\n${daySummary}`
         },
       ],
       temperature: 0.8,
-      max_tokens: 150,
+      max_tokens: 220,
     }),
   });
 
@@ -220,6 +270,122 @@ export async function generateDailyMirror(ventEntries: { content: string; create
 
   const data = await response.json();
   return data.choices[0]?.message?.content || "Your feelings are valid. Now, what's next?";
+}
+
+export const buildFocusRecommendationPrompt = (context: FocusRecommendationContext) => {
+  const { topValues, valueGap, valuesMirrorText } = deriveValueInsights(
+    context.recentEntries,
+    context.openCommitments
+  );
+
+  const valuesSummary = topValues.length > 0
+    ? topValues.map((value) => `${value.label} (recent ${value.recentScore}, commitments ${value.commitmentScore})`).join(', ')
+    : 'No strong recurring values detected yet.';
+
+  const recentEntriesSummary = context.recentEntries
+    .slice(0, 12)
+    .map((entry, i) => `${i + 1}. [${entry.type} | ${entry.energy}] ${entry.title}`)
+    .join('\n');
+
+  const openCommitmentsSummary = context.openCommitments
+    .slice(0, 12)
+    .map((entry, i) => `${i + 1}. [${entry.type} | ${entry.energy}] ${entry.title}`)
+    .join('\n');
+
+  const systemPrompt = `You are the Renaissance Focus Guide. You write loving but hard-to-ignore nudges for an ADHD user.
+
+Your job:
+- Notice the strongest recurring values in recent thoughts
+- Compare them against open commitments
+- Name the gap without shaming
+- Pick one focus item
+- Shrink it to a 5-minute starter step
+
+Rules:
+- Be concrete, not vague
+- Be warm, but never saccharine
+- Do not nag
+- If the user's values and commitments are misaligned, say so plainly
+- Prefer one actionable move over general motivation
+- The narrative should sound human and specific, like a real companion
+
+Return ONLY valid JSON with this exact shape:
+{"recommended_focus_title":"string or null","recommended_focus_reason":"string","starter_step":"string","narrative":"string","phase":"morning|midday|evening","values_summary":"string"}`;
+
+  const userPrompt = `Phase: ${context.phase}
+North Star: ${context.northStar || 'None set'}
+Weekly Focus: ${context.weeklyFocus || 'None set'}
+Spirit Animal: ${context.spiritAnimal || 'Unknown'}
+
+Recent thought values summary:
+${valuesSummary}
+
+Values mirror:
+${valuesMirrorText}
+
+Largest values-action gap:
+${valueGap ? `${valueGap.label} (gap ${valueGap.gap})` : 'No strong gap detected'}
+
+Recent entries:
+${recentEntriesSummary || 'None'}
+
+Open commitments:
+${openCommitmentsSummary || 'None'}
+
+If you choose a focus title that appears in the open commitments list, keep the wording close enough to match it.
+If you cannot find a good existing focus title, set recommended_focus_title to null and still provide a strong narrative and starter step.
+For the starter step, prefer the smallest visible action. Example pattern: "${context.openCommitments[0] ? deriveStarterStep(context.openCommitments[0].title) : 'Open a note and define the smallest possible start.'}"`;
+
+  return { systemPrompt, userPrompt, valuesSummary, valuesMirrorText };
+};
+
+export async function generateFocusRecommendation(
+  context: FocusRecommendationContext
+): Promise<GeneratedFocusRecommendation | null> {
+  const apiKey = getApiKey();
+  const { systemPrompt, userPrompt, valuesSummary } = buildFocusRecommendationPrompt(context);
+
+  const response = await fetch('https://api.openai.com/v1/chat/completions', {
+    method: 'POST',
+    headers: {
+      Authorization: `Bearer ${apiKey}`,
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({
+      model: 'gpt-4o-mini',
+      messages: [
+        { role: 'system', content: systemPrompt },
+        { role: 'user', content: userPrompt },
+      ],
+      temperature: 0.7,
+      max_tokens: 260,
+    }),
+  });
+
+  if (!response.ok) {
+    const error = await response.text();
+    console.error('Focus recommendation generation error:', error);
+    return null;
+  }
+
+  const data = await response.json();
+  const content = data.choices[0]?.message?.content || '{}';
+
+  try {
+    const jsonMatch = content.match(/\{[\s\S]*\}/);
+    const parsed = jsonMatch ? JSON.parse(jsonMatch[0]) : JSON.parse(content);
+    return {
+      recommended_focus_title: parsed.recommended_focus_title || null,
+      recommended_focus_reason: parsed.recommended_focus_reason || valuesSummary,
+      starter_step: parsed.starter_step || (context.openCommitments[0] ? deriveStarterStep(context.openCommitments[0].title) : 'Open a note and define the smallest possible start.'),
+      narrative: parsed.narrative || 'One value deserves one concrete move today.',
+      phase: parsed.phase || context.phase,
+      values_summary: parsed.values_summary || valuesSummary,
+    };
+  } catch (error) {
+    console.error('Failed to parse focus recommendation:', error, content);
+    return null;
+  }
 }
 
 // Export config for use in other files

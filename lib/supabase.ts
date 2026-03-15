@@ -31,6 +31,17 @@ export interface Commitment {
   latest_progress_note?: string | null;
 }
 
+export interface FocusRecommendation {
+  id: string;
+  focus_date: string;
+  recommended_focus_thought_id?: string | null;
+  recommended_focus_reason?: string | null;
+  starter_step?: string | null;
+  narrative?: string | null;
+  phase?: 'morning' | 'midday' | 'evening' | null;
+  created_at?: string;
+}
+
 export interface Entry {
   id: string;
   title: string;
@@ -303,16 +314,55 @@ export async function logCommitmentProgress(
   return data;
 }
 
+export async function fetchLatestFocusRecommendation(
+  focusDate: string
+): Promise<FocusRecommendation | null> {
+  const { data, error } = await supabase
+    .from('focus_recommendations')
+    .select('*')
+    .eq('focus_date', focusDate)
+    .order('created_at', { ascending: false })
+    .limit(1)
+    .maybeSingle();
+
+  if (error) {
+    console.warn('Focus recommendation unavailable:', error.message);
+    return null;
+  }
+
+  return data || null;
+}
+
+export async function fetchFocusRecommendations(
+  focusDate: string
+): Promise<FocusRecommendation[]> {
+  const { data, error } = await supabase
+    .from('focus_recommendations')
+    .select('*')
+    .eq('focus_date', focusDate)
+    .order('created_at', { ascending: false });
+
+  if (error) {
+    console.warn('Focus recommendations unavailable:', error.message);
+    return [];
+  }
+
+  return data || [];
+}
+
 // ── Spirit Animal ─────────────────────────────────────────────────────────────
 
 export async function getTodaysSpiritAnimal(): Promise<string> {
-  const today = new Date().toISOString().split('T')[0];
+  const today = new Date();
+  const yesterday = new Date(today);
+  yesterday.setDate(yesterday.getDate() - 1);
+  const targetDate = yesterday.toISOString().split('T')[0];
 
   const { data, error } = await supabase
     .from('entries')
     .select('type, energy')
-    .gte('created_at', `${today}T00:00:00`)
-    .lte('created_at', `${today}T23:59:59`);
+    .gte('created_at', `${targetDate}T00:00:00`)
+    .lte('created_at', `${targetDate}T23:59:59`);
 
   if (error || !data || data.length === 0) {
     return '🐢 Steady Turtle';
@@ -322,19 +372,40 @@ export async function getTodaysSpiritAnimal(): Promise<string> {
   const momentumCount = data.filter(e => e.type === 'momentum').length;
   const dreamCount = data.filter(e => e.type === 'dream').length;
   const vitalityCount = data.filter(e => e.type === 'vitality').length;
+  const logicCount = data.filter(e => e.type === 'logic').length;
+  const kitchenCount = data.filter(e => e.type === 'kitchen').length;
   const zombieCount = data.filter(e => e.energy === 'zombie').length;
   const highCount = data.filter(e => e.energy === 'high').length;
+  const lowCount = data.filter(e => e.energy === 'low').length;
+
+  const categoryScores = {
+    vent: ventCount * 3,
+    momentum: momentumCount * 3,
+    dream: dreamCount * 3,
+    vitality: vitalityCount * 3,
+    logic: logicCount * 3,
+    kitchen: kitchenCount * 4,
+  };
+
+  const dominantCategory = (Object.entries(categoryScores) as Array<[keyof typeof categoryScores, number]>)
+    .sort((a, b) => b[1] - a[1])[0]?.[0];
 
   if (zombieCount > data.length / 2) {
     return '🦥 Sleepy Sloth';
   }
-  if (ventCount > momentumCount && ventCount > dreamCount) {
+  if (dominantCategory === 'kitchen' && kitchenCount > 0) {
+    return '🐻 Kitchen Bear';
+  }
+  if (dominantCategory === 'vent') {
     return '🐉 Processing Dragon';
   }
-  if (vitalityCount > momentumCount) {
+  if (dominantCategory === 'logic' && logicCount > 0) {
+    return '🦉 Thinking Owl';
+  }
+  if (dominantCategory === 'vitality') {
     return '🌿 Forest Walker';
   }
-  if (dreamCount > momentumCount) {
+  if (dominantCategory === 'dream') {
     return '🦅 Dreaming Eagle';
   }
   if (highCount > data.length / 2) {
@@ -342,6 +413,9 @@ export async function getTodaysSpiritAnimal(): Promise<string> {
   }
   if (momentumCount >= 3) {
     return '🐝 Busy Bee';
+  }
+  if (lowCount >= data.length / 2) {
+    return '🐢 Steady Turtle';
   }
 
   return '🐢 Steady Turtle';

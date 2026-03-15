@@ -21,16 +21,18 @@ import { transcribeAudio, processThought, generateDailyMirror, renaissanceConfig
 import {
   Entry,
   Commitment,
+  FocusRecommendation,
   fetchEntries,
   insertThought,
   getTodaysSpiritAnimal,
-  fetchYesterdaysVents,
   fetchCommitments,
+  fetchFocusRecommendations,
   createCommitment,
   updateCommitmentStatus,
   logCommitmentProgress,
   deleteEntry,
 } from './lib/supabase';
+import { deriveStarterStep, deriveValueInsights, TYPE_VALUE_LENS } from './lib/values';
 
 // Fix voice-to-text name errors in display
 const fixName = (text?: string | null): string => {
@@ -41,6 +43,11 @@ const fixName = (text?: string | null): string => {
 interface AnimatedEntry extends Entry {
   glowAnim: Animated.Value;
   slideAnim: Animated.Value;
+}
+
+interface PendingCommitmentReviewItem {
+  entry: AnimatedEntry;
+  reasoning: string;
 }
 
 // Build dynamic mappings from config
@@ -77,6 +84,8 @@ const STORAGE_KEYS = {
   DAILY_BLOCKER: 'renaissance_daily_blocker',
   DAILY_WHEN: 'renaissance_daily_when',
   DAILY_CHECKIN_UPDATED_AT: 'renaissance_daily_checkin_updated_at',
+  FOCUS_RECOMMENDATION: 'renaissance_focus_recommendation',
+  FOCUS_RECOMMENDATION_DATE: 'renaissance_focus_recommendation_date',
 };
 
 // Get today's date string for comparison
@@ -89,9 +98,11 @@ const getYesterdayDateString = () => {
   return yesterday.toISOString().split('T')[0];
 };
 
+const getDateStringFromTimestamp = (timestamp: string) => timestamp.split('T')[0];
+
 const ENABLE_COMMITMENT_GATE = false;
 const ENABLE_BOTTLENECK_BANNER = false;
-const BUILD_LABEL = 'coach-a740111';
+const BUILD_LABEL = 'focus-b1';
 
 // Format date for display (e.g., "February 13")
 const formatDateForDisplay = (dateStr: string) => {
@@ -99,25 +110,59 @@ const formatDateForDisplay = (dateStr: string) => {
   return date.toLocaleDateString('en-US', { month: 'long', day: 'numeric' });
 };
 
-// Check if we should generate a new Morning Mirror
-// Only generates once per day, on first app open after 4 AM
 const shouldGenerateMirror = (lastGeneratedDate: string | null): boolean => {
-  const now = new Date();
   const today = getTodayDateString();
-  const currentHour = now.getHours();
+  return lastGeneratedDate !== today;
+};
 
-  // If never generated, generate now (if after 4 AM)
-  if (!lastGeneratedDate) {
-    return currentHour >= 4;
+const getCurrentFocusPhase = (): 'morning' | 'midday' | 'evening' => {
+  const hour = new Date().getHours();
+  if (hour < 12) return 'morning';
+  if (hour < 17) return 'midday';
+  return 'evening';
+};
+
+const selectFocusRecommendationForPhase = (
+  recommendations: FocusRecommendation[],
+  phase: 'morning' | 'midday' | 'evening'
+): FocusRecommendation | null => {
+  const phaseOrder: Record<'morning' | 'midday' | 'evening', Array<'morning' | 'midday' | 'evening'>> = {
+    morning: ['morning', 'midday', 'evening'],
+    midday: ['midday', 'morning', 'evening'],
+    evening: ['evening', 'midday', 'morning'],
+  };
+
+  for (const candidatePhase of phaseOrder[phase]) {
+    const match = recommendations.find((item) => item.phase === candidatePhase);
+    if (match) return match;
   }
 
-  // If already generated today, don't regenerate
-  if (lastGeneratedDate === today) {
-    return false;
-  }
+  return recommendations[0] || null;
+};
 
-  // If it's a new day and after 4 AM, generate
-  return currentHour >= 4;
+const hoursSince = (timestamp?: string | null): number => {
+  if (!timestamp) return Number.POSITIVE_INFINITY;
+  return (Date.now() - new Date(timestamp).getTime()) / (1000 * 60 * 60);
+};
+
+const scoreFocusCandidate = (entry: AnimatedEntry, commitment: Commitment, weeklyFocusText: string): number => {
+  let score = 0;
+  const title = fixName(entry.title).toLowerCase();
+  const focus = weeklyFocusText.trim().toLowerCase();
+  const hoursWithoutProgress = hoursSince(commitment.last_progress_at || commitment.created_at);
+
+  if (focus && title.includes(focus)) score += 5;
+  if (entry.type === 'momentum') score += 4;
+  if (entry.type === 'vitality') score += 3;
+  if (entry.type === 'dream') score += 2;
+  if (commitment.kind === 'ongoing') score += 1;
+  if ((commitment.progress_count_7d || 0) === 0) score += 2;
+  if (hoursWithoutProgress > 72) score += 4;
+  else if (hoursWithoutProgress > 24) score += 2;
+  if (entry.energy === 'high') score += 1;
+  if (entry.energy === 'zombie') score -= 1;
+
+  return score;
 };
 
 export default function App() {
@@ -133,7 +178,7 @@ export default function App() {
   const [mirrorSourceDate, setMirrorSourceDate] = useState<string | null>(null);
   const [isLoadingMirror, setIsLoadingMirror] = useState(false);
   const [activeFilter, setActiveFilter] = useState<string | null>(null);
-  const [activeTab, setActiveTab] = useState<'capture' | 'commitments' | 'coach'>('capture');
+  const [activeTab, setActiveTab] = useState<'capture' | 'focus' | 'thoughts' | 'commitments'>('capture');
   const [isMirrorCollapsed, setIsMirrorCollapsed] = useState(true);
   const [bottleneck, setBottleneck] = useState<string | null>(null);
   const [showBottleneckBanner, setShowBottleneckBanner] = useState(true);
@@ -144,6 +189,8 @@ export default function App() {
   const channel = Updates.channel || 'unknown-channel';
   const [gateCountdown, setGateCountdown] = useState(3);
   const [gateOpenCount, setGateOpenCount] = useState(0);
+  const [pendingCommitmentReview, setPendingCommitmentReview] = useState<PendingCommitmentReviewItem[]>([]);
+  const [commitmentReviewVisible, setCommitmentReviewVisible] = useState(false);
   const [northStar, setNorthStar] = useState('');
   const [weeklyFocus, setWeeklyFocus] = useState('');
   const [dailyAlignment, setDailyAlignment] = useState<'yes' | 'partial' | 'no' | null>(null);
@@ -152,6 +199,8 @@ export default function App() {
   const [dailyBlocker, setDailyBlocker] = useState('');
   const [dailyWhen, setDailyWhen] = useState('');
   const [dailyCheckinUpdatedAt, setDailyCheckinUpdatedAt] = useState<string | null>(null);
+  const [focusRecommendation, setFocusRecommendation] = useState<FocusRecommendation | null>(null);
+  const [isFocusNudgeExpanded, setIsFocusNudgeExpanded] = useState(false);
   const pulseAnim = useRef(new Animated.Value(1)).current;
   const recordingAnim = useRef(new Animated.Value(1)).current;
   const processingAnim = useRef(new Animated.Value(1)).current;
@@ -194,53 +243,45 @@ export default function App() {
         setBottleneck(null);
       }
 
-      // Morning Mirror: Daily synthesis of YESTERDAY's vents
-      // Only generates once per day, on first app open after 4 AM
+      // Morning Mirror: daily synthesis of the full previous day's capture log
       const [storedMirror, storedSourceDate, storedGeneratedDate] = await Promise.all([
         AsyncStorage.getItem(STORAGE_KEYS.MORNING_MIRROR),
         AsyncStorage.getItem(STORAGE_KEYS.MORNING_MIRROR_DATE),
         AsyncStorage.getItem(STORAGE_KEYS.MORNING_MIRROR_GENERATED),
       ]);
 
-      // Check if we should generate a new mirror
       if (shouldGenerateMirror(storedGeneratedDate)) {
-        // Fetch yesterday's vents for synthesis
-        const yesterdaysVents = await fetchYesterdaysVents();
         const yesterday = getYesterdayDateString();
+        const yesterdaysEntries = fetchedEntries.filter(
+          (entry) => getDateStringFromTimestamp(entry.created_at) === yesterday
+        );
 
-        if (yesterdaysVents.length > 0) {
-          setIsLoadingMirror(true);
-          try {
-            const ventContents = yesterdaysVents
-              .filter(v => v.content)
-              .map(v => ({ content: v.content || '', created_at: v.created_at }));
-            const mirror = await generateDailyMirror(ventContents);
+        setIsLoadingMirror(true);
+        try {
+          const mirror = await generateDailyMirror(
+            yesterdaysEntries.map((entry) => ({
+              title: entry.title,
+              type: entry.type,
+              energy: entry.energy,
+              content: entry.content,
+              insight: entry.insight,
+              created_at: entry.created_at,
+            }))
+          );
 
-            // Store the mirror with today's generation date
-            const today = getTodayDateString();
-            await Promise.all([
-              AsyncStorage.setItem(STORAGE_KEYS.MORNING_MIRROR, mirror),
-              AsyncStorage.setItem(STORAGE_KEYS.MORNING_MIRROR_DATE, yesterday),
-              AsyncStorage.setItem(STORAGE_KEYS.MORNING_MIRROR_GENERATED, today),
-            ]);
+          const today = getTodayDateString();
+          await Promise.all([
+            AsyncStorage.setItem(STORAGE_KEYS.MORNING_MIRROR, mirror),
+            AsyncStorage.setItem(STORAGE_KEYS.MORNING_MIRROR_DATE, yesterday),
+            AsyncStorage.setItem(STORAGE_KEYS.MORNING_MIRROR_GENERATED, today),
+          ]);
 
-            setMorningMirror(mirror);
-            setMirrorSourceDate(yesterday);
-          } finally {
-            setIsLoadingMirror(false);
-          }
-        } else {
-          // No vents yesterday - keep last available mirror instead of clearing it
-          // (prevents the card from disappearing on quiet/no-vent days)
-          await AsyncStorage.setItem(STORAGE_KEYS.MORNING_MIRROR_GENERATED, getTodayDateString());
-
-          if (storedMirror && storedSourceDate) {
-            setMorningMirror(storedMirror);
-            setMirrorSourceDate(storedSourceDate);
-          }
+          setMorningMirror(mirror);
+          setMirrorSourceDate(yesterday);
+        } finally {
+          setIsLoadingMirror(false);
         }
       } else if (storedMirror && storedSourceDate) {
-        // Use the cached mirror (already generated today)
         setMorningMirror(storedMirror);
         setMirrorSourceDate(storedSourceDate);
       }
@@ -254,6 +295,8 @@ export default function App() {
         storedDailyBlocker,
         storedDailyWhen,
         storedDailyCheckinUpdatedAt,
+        storedFocusRecommendation,
+        storedFocusRecommendationDate,
       ] = await Promise.all([
         AsyncStorage.getItem(STORAGE_KEYS.NORTH_STAR),
         AsyncStorage.getItem(STORAGE_KEYS.WEEKLY_FOCUS),
@@ -263,6 +306,8 @@ export default function App() {
         AsyncStorage.getItem(STORAGE_KEYS.DAILY_BLOCKER),
         AsyncStorage.getItem(STORAGE_KEYS.DAILY_WHEN),
         AsyncStorage.getItem(STORAGE_KEYS.DAILY_CHECKIN_UPDATED_AT),
+        AsyncStorage.getItem(STORAGE_KEYS.FOCUS_RECOMMENDATION),
+        AsyncStorage.getItem(STORAGE_KEYS.FOCUS_RECOMMENDATION_DATE),
       ]);
       setNorthStar(storedNorthStar || '');
       setWeeklyFocus(storedWeeklyFocus || '');
@@ -272,6 +317,26 @@ export default function App() {
       setDailyBlocker(storedDailyBlocker || '');
       setDailyWhen(storedDailyWhen || '');
       setDailyCheckinUpdatedAt(storedDailyCheckinUpdatedAt || null);
+
+      const today = getTodayDateString();
+      const currentPhase = getCurrentFocusPhase();
+      const backendRecommendations = await fetchFocusRecommendations(today);
+      const selectedRecommendation = selectFocusRecommendationForPhase(backendRecommendations, currentPhase);
+      if (selectedRecommendation) {
+        setFocusRecommendation(selectedRecommendation);
+        await Promise.all([
+          AsyncStorage.setItem(STORAGE_KEYS.FOCUS_RECOMMENDATION, JSON.stringify(selectedRecommendation)),
+          AsyncStorage.setItem(STORAGE_KEYS.FOCUS_RECOMMENDATION_DATE, today),
+        ]);
+      } else if (storedFocusRecommendation && storedFocusRecommendationDate === today) {
+        try {
+          setFocusRecommendation(JSON.parse(storedFocusRecommendation));
+        } catch {
+          setFocusRecommendation(null);
+        }
+      } else {
+        setFocusRecommendation(null);
+      }
     } catch (error) {
       console.error('Error loading data:', error);
     }
@@ -295,6 +360,10 @@ export default function App() {
       }
     })();
   }, []);
+
+  useEffect(() => {
+    setIsFocusNudgeExpanded(false);
+  }, [focusRecommendation?.id]);
 
   useEffect(() => {
     (async () => {
@@ -541,6 +610,7 @@ export default function App() {
       setStatusText('Saving...');
 
       const newAnimatedEntries: AnimatedEntry[] = [];
+      const suggestedCommitments: PendingCommitmentReviewItem[] = [];
 
       // Step 3: Save each thought with embedding to Supabase
       for (const thought of processedThoughts) {
@@ -554,11 +624,19 @@ export default function App() {
         });
 
         if (savedEntry) {
-          newAnimatedEntries.push({
+          const animatedEntry: AnimatedEntry = {
             ...savedEntry,
             glowAnim: new Animated.Value(0),
             slideAnim: new Animated.Value(0),
-          });
+          };
+          newAnimatedEntries.push(animatedEntry);
+
+          if (thought.suggestCommitment) {
+            suggestedCommitments.push({
+              entry: animatedEntry,
+              reasoning: thought.commitmentReasoning || 'This sounds actionable enough to deserve accountability.',
+            });
+          }
         }
       }
 
@@ -569,12 +647,17 @@ export default function App() {
         const newAnimal = await getTodaysSpiritAnimal();
         setSpiritAnimal(newAnimal);
 
-        // Note: Today's vents are saved for tomorrow's Morning Mirror
-        // The mirror is locked after first generation each day
+        // Today's entries become part of tomorrow's mirror
       }
 
-      setStatusText(`Added ${newAnimatedEntries.length} item${newAnimatedEntries.length > 1 ? 's' : ''}`);
-      setTimeout(() => setStatusText('Hold to record'), 2000);
+      if (suggestedCommitments.length > 0) {
+        setPendingCommitmentReview(suggestedCommitments);
+        setCommitmentReviewVisible(true);
+        setStatusText(`Review ${suggestedCommitments.length} suggested commitment${suggestedCommitments.length > 1 ? 's' : ''}`);
+      } else {
+        setStatusText(`Added ${newAnimatedEntries.length} item${newAnimatedEntries.length > 1 ? 's' : ''}`);
+        setTimeout(() => setStatusText('Hold to record'), 2000);
+      }
     } catch (error) {
       console.error('Processing error:', error);
       setStatusText('Error. Try again.');
@@ -625,6 +708,20 @@ export default function App() {
     (entry) => !isDeploymentNoise(entry.title)
   );
 
+  const captureCutoffDate = new Date();
+  captureCutoffDate.setDate(captureCutoffDate.getDate() - 30);
+
+  const captureEntries = visibleEntries.filter((entry) => {
+    const commitment = commitmentMap[entry.id];
+    const isArchivedCommitment = commitment && commitment.status !== 'open';
+    if (isArchivedCommitment) return false;
+    return new Date(entry.created_at) >= captureCutoffDate;
+  });
+
+  const filteredCaptureEntries = activeFilter
+    ? captureEntries.filter((entry) => entry.type === activeFilter)
+    : captureEntries;
+
   const commitmentItems = Object.entries(commitmentMap)
     .map(([thoughtId, commitment]) => {
       const entry = visibleEntries.find((e) => e.id === thoughtId);
@@ -640,6 +737,46 @@ export default function App() {
       if (b.commitment.status === 'open') return 1;
       return 0;
     });
+  const openCommitmentItems = commitmentItems.filter((item) => item.commitment.status === 'open');
+  const recentEntries = visibleEntries.filter((entry) => {
+    const cutoff = new Date();
+    cutoff.setDate(cutoff.getDate() - 14);
+    return new Date(entry.created_at) >= cutoff;
+  });
+  const { topValues, topEmergentValue, valuesMirrorText } = deriveValueInsights(
+    recentEntries,
+    openCommitmentItems.map(({ entry }) => entry)
+  );
+  const rankedFocusItems = [...openCommitmentItems].sort((a, b) => {
+    const aRecommended = focusRecommendation?.recommended_focus_thought_id === a.entry.id ? 1 : 0;
+    const bRecommended = focusRecommendation?.recommended_focus_thought_id === b.entry.id ? 1 : 0;
+    if (aRecommended !== bRecommended) return bRecommended - aRecommended;
+    const scoreDiff = scoreFocusCandidate(b.entry, b.commitment, weeklyFocus) - scoreFocusCandidate(a.entry, a.commitment, weeklyFocus);
+    if (scoreDiff !== 0) return scoreDiff;
+    return new Date(a.entry.created_at).getTime() - new Date(b.entry.created_at).getTime();
+  });
+  const primaryFocus = rankedFocusItems[0] || null;
+  const secondaryFocus = rankedFocusItems.slice(1, 3);
+  const focusReason = focusRecommendation?.recommended_focus_reason?.trim() || '';
+  const suggestedStarterStep = dailyMove.trim()
+    || focusRecommendation?.starter_step?.trim()
+    || (primaryFocus ? deriveStarterStep(primaryFocus.entry.title) : '');
+  const valueLens = primaryFocus ? TYPE_VALUE_LENS[primaryFocus.entry.type] || 'what keeps recurring in your thoughts' : 'what keeps recurring in your thoughts';
+  const whyThisMatters = focusReason
+    || (weeklyFocus.trim()
+      ? `This supports your weekly focus: ${weeklyFocus.trim()}.`
+      : primaryFocus
+        ? `This matters because it points at ${valueLens}, and ${topEmergentValue ? `${topEmergentValue.label.toLowerCase()} has been one of your strongest recurring values lately.` : 'that keeps showing up in your captured life.'}`
+        : northStar.trim()
+          ? `Use your North Star as the filter: ${northStar.trim()}.`
+          : 'Use this as a test of congruence: what you think matters should get at least one concrete action.');
+  const spiritAnimalReading = dailyAlignment === 'yes'
+    ? `${spiritAnimal} is showing alignment right now. Something you care about is making it into lived action. Protect that pattern with one more concrete step.`
+    : dailyAlignment === 'partial'
+      ? `${spiritAnimal} is carrying mixed signals. Your values are visible, but they are not fully embodied yet. Shrink the gap with one move you can actually complete.`
+      : openCommitmentItems.length > 5
+        ? `${spiritAnimal} is warning about cognitive overload. Too many open loops are competing with each other. Keep the full map, but let only one thing lead today.`
+        : `${spiritAnimal} reflects the story you are living, not just your mood. Let today’s focus prove one value in action, not just in language.`;
 
   const openDetail = (entry: AnimatedEntry) => {
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
@@ -656,6 +793,31 @@ export default function App() {
   const closeDetail = () => {
     setModalVisible(false);
     setSelectedEntry(null);
+  };
+
+  const closeCommitmentReview = () => {
+    setCommitmentReviewVisible(false);
+    setPendingCommitmentReview([]);
+    setStatusText('Hold to record');
+  };
+
+  const acceptSuggestedCommitment = async (item: PendingCommitmentReviewItem) => {
+    if (commitmentMap[item.entry.id]) {
+      setPendingCommitmentReview(prev => prev.filter(candidate => candidate.entry.id !== item.entry.id));
+      return;
+    }
+
+    const created = await createCommitment(item.entry.id, item.reasoning);
+    if (created) {
+      setCommitmentMap(prev => ({ ...prev, [item.entry.id]: created }));
+      setPendingCommitmentReview(prev => prev.filter(candidate => candidate.entry.id !== item.entry.id));
+      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+    }
+  };
+
+  const dismissSuggestedCommitment = (entryId: string) => {
+    setPendingCommitmentReview(prev => prev.filter(candidate => candidate.entry.id !== entryId));
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
   };
 
   const handleDeleteEntry = async (entry: AnimatedEntry) => {
@@ -746,6 +908,14 @@ export default function App() {
       </TouchableOpacity>
     );
   };
+
+  const renderCaptureListFooter = () => (
+    <View style={styles.captureListFooter}>
+      <Text style={styles.captureListFooterText}>
+        Showing the last 30 days in Capture. Older thoughts are still in Supabase and remain accessible.
+      </Text>
+    </View>
+  );
 
   const renderCommitmentItem = ({ item }: { item: { entry: AnimatedEntry; commitment: Commitment } }) => {
     const { entry, commitment } = item;
@@ -1049,13 +1219,7 @@ export default function App() {
                 </View>
 
                 {/* Renaissance Footer */}
-                <Text style={{
-                  marginTop: 30,
-                  color: '#444444',
-                  fontSize: 13,
-                  textAlign: 'center',
-                  fontStyle: 'italic'
-                }}>
+                <Text style={styles.renaissanceFooterText}>
                   {isVitality ? "🌿 This nourishes your whole self." :
                    isMomentum ? "⚙️ Small steps build unstoppable momentum." :
                    isVent ? "💫 Acknowledging feelings is progress." :
@@ -1128,6 +1292,71 @@ export default function App() {
     );
   };
 
+  const renderCommitmentReview = () => {
+    if (!commitmentReviewVisible) return null;
+
+    return (
+      <Modal
+        animationType="slide"
+        transparent={true}
+        visible={commitmentReviewVisible}
+        onRequestClose={closeCommitmentReview}
+      >
+        <View style={styles.gateOverlay}>
+          <View style={styles.reviewCard}>
+            <View style={styles.reviewHeader}>
+              <View style={styles.reviewHeaderTextWrap}>
+                <Text style={styles.reviewTitle}>AI Commitment Review</Text>
+                <Text style={styles.reviewBody}>
+                  The Strategist found {pendingCommitmentReview.length} thought{pendingCommitmentReview.length === 1 ? '' : 's'} worth tracking. Keep the ones you want, dismiss the rest.
+                </Text>
+              </View>
+              <TouchableOpacity onPress={closeCommitmentReview} style={styles.closeButton}>
+                <Text style={styles.closeButtonText}>×</Text>
+              </TouchableOpacity>
+            </View>
+
+            <ScrollView style={styles.reviewList} showsVerticalScrollIndicator={false}>
+              {pendingCommitmentReview.map((item) => {
+                const typeColor = TYPE_COLORS[item.entry.type] || CYAN;
+                return (
+                  <View key={item.entry.id} style={styles.reviewItemCard}>
+                    <Text style={styles.reviewItemTitle}>{fixName(item.entry.title)}</Text>
+                    <Text style={[styles.reviewItemMeta, { color: typeColor }]}>
+                      {TYPE_LABELS[item.entry.type] || item.entry.type} · {ENERGY_ICONS[item.entry.energy] || '●'} {item.entry.energy}
+                    </Text>
+                    <Text style={styles.reviewItemReasoning}>{item.reasoning}</Text>
+
+                    <View style={styles.reviewActions}>
+                      <TouchableOpacity
+                        style={styles.reviewKeepButton}
+                        onPress={() => acceptSuggestedCommitment(item)}
+                      >
+                        <Text style={styles.reviewKeepButtonText}>Keep Commitment</Text>
+                      </TouchableOpacity>
+                      <TouchableOpacity
+                        style={styles.reviewDismissButton}
+                        onPress={() => dismissSuggestedCommitment(item.entry.id)}
+                      >
+                        <Text style={styles.reviewDismissButtonText}>Dismiss</Text>
+                      </TouchableOpacity>
+                    </View>
+                  </View>
+                );
+              })}
+            </ScrollView>
+
+            <TouchableOpacity style={styles.reviewDoneButton} onPress={closeCommitmentReview}>
+              <Text style={styles.reviewDoneButtonText}>
+                {pendingCommitmentReview.length === 0 ? 'Close' : 'Done Reviewing'}
+              </Text>
+            </TouchableOpacity>
+          </View>
+        </View>
+      </Modal>
+    );
+  };
+
   return (
     <View style={styles.container}>
       <StatusBar style="light" />
@@ -1144,16 +1373,22 @@ export default function App() {
           <Text style={[styles.modeTabText, activeTab === 'capture' && styles.modeTabTextActive]}>Capture</Text>
         </TouchableOpacity>
         <TouchableOpacity
+          style={[styles.modeTab, activeTab === 'focus' && styles.modeTabActive]}
+          onPress={() => setActiveTab('focus')}
+        >
+          <Text style={[styles.modeTabText, activeTab === 'focus' && styles.modeTabTextActive]}>Focus</Text>
+        </TouchableOpacity>
+        <TouchableOpacity
+          style={[styles.modeTab, activeTab === 'thoughts' && styles.modeTabActive]}
+          onPress={() => setActiveTab('thoughts')}
+        >
+          <Text style={[styles.modeTabText, activeTab === 'thoughts' && styles.modeTabTextActive]}>Thoughts</Text>
+        </TouchableOpacity>
+        <TouchableOpacity
           style={[styles.modeTab, activeTab === 'commitments' && styles.modeTabActive]}
           onPress={() => setActiveTab('commitments')}
         >
           <Text style={[styles.modeTabText, activeTab === 'commitments' && styles.modeTabTextActive]}>Commitments</Text>
-        </TouchableOpacity>
-        <TouchableOpacity
-          style={[styles.modeTab, activeTab === 'coach' && styles.modeTabActive]}
-          onPress={() => setActiveTab('coach')}
-        >
-          <Text style={[styles.modeTabText, activeTab === 'coach' && styles.modeTabTextActive]}>Coach</Text>
         </TouchableOpacity>
       </View>
 
@@ -1161,6 +1396,7 @@ export default function App() {
       <View style={styles.spiritAnimalContainer}>
         <Text style={styles.spiritAnimalLabel}>Spirit Animal</Text>
         <Text style={styles.spiritAnimal}>{spiritAnimal}</Text>
+        <Text style={styles.spiritAnimalReading}>{spiritAnimalReading}</Text>
       </View>
 
       {/* Accountability Banner - Bottleneck Detector */}
@@ -1184,57 +1420,8 @@ export default function App() {
 
       {activeTab === 'capture' && (
       <>
-      {/* Fixed Header Area - Filter Bar + Morning Mirror */}
+      {/* Fixed Header Area - Morning Mirror */}
       <View style={styles.fixedHeader}>
-        {/* Category Filter Bar */}
-        <ScrollView
-          horizontal
-          showsHorizontalScrollIndicator={false}
-          style={styles.filterBar}
-          contentContainerStyle={styles.filterBarContent}
-        >
-          <TouchableOpacity
-            style={[
-              styles.filterChip,
-              activeFilter === null && styles.filterChipActive,
-            ]}
-            onPress={() => {
-              Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-              setActiveFilter(null);
-            }}
-          >
-            <Text style={[
-              styles.filterChipText,
-              activeFilter === null && styles.filterChipTextActive,
-            ]}>
-              All
-            </Text>
-          </TouchableOpacity>
-          {renaissanceConfig.categories.map((category) => (
-            <TouchableOpacity
-              key={category.id}
-              style={[
-                styles.filterChip,
-                activeFilter === category.id && styles.filterChipActive,
-                activeFilter === category.id && { borderColor: category.color },
-              ]}
-              onPress={() => {
-                Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-                setActiveFilter(category.id);
-              }}
-            >
-              <Text style={styles.filterChipIcon}>{category.icon}</Text>
-              <Text style={[
-                styles.filterChipText,
-                activeFilter === category.id && styles.filterChipTextActive,
-                activeFilter === category.id && { color: category.color },
-              ]}>
-                {category.label}
-              </Text>
-            </TouchableOpacity>
-          ))}
-        </ScrollView>
-
         {/* Morning Mirror Card - Daily Synthesis from Yesterday */}
         {(morningMirror || isLoadingMirror) && (
           <TouchableOpacity
@@ -1254,11 +1441,11 @@ export default function App() {
                 <Text style={styles.morningMirrorTitle}>Morning Mirror</Text>
                 {!isMirrorCollapsed && !isLoadingMirror && mirrorSourceDate && (
                   <Text style={styles.morningMirrorSubtitle}>
-                    Your synthesis from {formatDateForDisplay(mirrorSourceDate)}
+                    Your full-day reflection from {formatDateForDisplay(mirrorSourceDate)}
                   </Text>
                 )}
                 {isLoadingMirror && (
-                  <Text style={styles.morningMirrorSubtitle}>Synthesizing yesterday...</Text>
+                  <Text style={styles.morningMirrorSubtitle}>Analyzing yesterday...</Text>
                 )}
               </View>
               <Text style={styles.morningMirrorChevron}>
@@ -1330,16 +1517,93 @@ export default function App() {
         <Text style={styles.entryListHeader}>
           {activeTab === 'commitments'
             ? `Commitments (${commitmentItems.length})`
-            : activeTab === 'coach'
-              ? 'Coach Mode'
-              : activeFilter
-              ? `${TYPE_LABELS[activeFilter] || activeFilter} (${visibleEntries.filter(e => e.type === activeFilter).length})`
-              : visibleEntries.length > 0
-                ? `Brain Dump (${visibleEntries.length})`
-                : 'Your thoughts will appear here'}
+            : activeTab === 'focus'
+              ? 'Focus Progression'
+              : activeTab === 'thoughts'
+                ? activeFilter
+                  ? `${TYPE_LABELS[activeFilter] || activeFilter} (${filteredCaptureEntries.length})`
+                  : filteredCaptureEntries.length > 0
+                    ? `Thoughts (${filteredCaptureEntries.length})`
+                    : 'Your thoughts will appear here'
+                : 'Today\'s Progression'
+        }
         </Text>
 
-        {activeTab === 'coach' ? (
+        {activeTab === 'capture' ? (
+          <ScrollView
+            style={styles.entryList}
+            showsVerticalScrollIndicator={false}
+            refreshControl={
+              <RefreshControl
+                refreshing={isRefreshing}
+                onRefresh={onRefresh}
+                tintColor="#00FFFF"
+              />
+            }
+          >
+            <View style={styles.progressionCard}>
+              <Text style={styles.progressionEyebrow}>Morning</Text>
+              <Text style={styles.progressionTitle}>Choose the tiniest move worth making today.</Text>
+              <Text style={styles.progressionBody}>
+                Keep the full landscape in Commitments. Use Capture to stay honest and Focus to narrow without losing the bigger picture.
+              </Text>
+
+              {!!focusRecommendation?.narrative?.trim() && (
+                <View style={styles.progressionNudgeCard}>
+                  <Text style={styles.progressionNudgeLabel}>
+                    {focusRecommendation.phase ? `${focusRecommendation.phase} nudge` : 'Daily nudge'}
+                  </Text>
+                  <Text style={styles.progressionNudgeText} numberOfLines={4}>
+                    {focusRecommendation.narrative.trim()}
+                  </Text>
+                </View>
+              )}
+
+              <View style={styles.progressionPrimaryBlock}>
+                <Text style={styles.progressionSectionLabel}>Today&apos;s next move</Text>
+                {suggestedStarterStep ? (
+                  <>
+                    <Text style={styles.progressionPrimaryText}>{suggestedStarterStep}</Text>
+                    {!dailyMove.trim() && primaryFocus && (
+                      <Text style={styles.progressionMeta}>Derived from: {fixName(primaryFocus.entry.title)}</Text>
+                    )}
+                    {!!dailyWhen.trim() && (
+                      <Text style={styles.progressionMeta}>When: {dailyWhen.trim()}</Text>
+                    )}
+                    {!!dailyBlocker.trim() && (
+                      <Text style={styles.progressionMeta}>Watch-out: {dailyBlocker.trim()}</Text>
+                    )}
+                    {!!focusReason && !dailyMove.trim() && (
+                      <Text style={styles.progressionMeta}>Why this surfaced: {focusReason}</Text>
+                    )}
+                  </>
+                ) : primaryFocus ? (
+                  <>
+                    <Text style={styles.progressionPrimaryText}>{fixName(primaryFocus.entry.title)}</Text>
+                    <Text style={styles.progressionMeta}>Pulled from your open commitments. Shrink it in Focus if this still feels too big.</Text>
+                  </>
+                ) : (
+                  <Text style={styles.progressionEmptyText}>No active step yet. Use Focus to pick one 5-minute starter.</Text>
+                )}
+              </View>
+
+              <View style={styles.progressionTimeline}>
+                <View style={styles.progressionStep}>
+                  <Text style={styles.progressionStepLabel}>Morning</Text>
+                  <Text style={styles.progressionStepText}>Pick the one tiny move that matters.</Text>
+                </View>
+                <View style={styles.progressionStep}>
+                  <Text style={styles.progressionStepLabel}>Midday</Text>
+                  <Text style={styles.progressionStepText}>If ignored, Renaissance should make it smaller, not louder.</Text>
+                </View>
+                <View style={styles.progressionStep}>
+                  <Text style={styles.progressionStepLabel}>Evening</Text>
+                  <Text style={styles.progressionStepText}>Log what moved, what blocked you, and what survives tomorrow.</Text>
+                </View>
+              </View>
+            </View>
+          </ScrollView>
+        ) : activeTab === 'focus' ? (
           <ScrollView
             style={styles.entryList}
             showsVerticalScrollIndicator={false}
@@ -1352,107 +1616,80 @@ export default function App() {
             }
           >
             <View style={styles.coachCard}>
-              <Text style={styles.coachCardTitle}>Compass Layer</Text>
-              <Text style={styles.coachCardBody}>Define your North Star, this week’s focus, and whether today aligned. This is your anti-drift anchor.</Text>
+              <Text style={styles.coachCardTitle}>Right Now</Text>
+              <Text style={styles.coachCardBody}>This layer narrows the day without deleting the rest of your life. Keep the ledger in Commitments. Pick the next visible move here.</Text>
 
-              <Text style={styles.coachInputLabel}>North Star</Text>
-              <TextInput
-                style={styles.coachInput}
-                multiline
-                value={northStar}
-                onChangeText={setNorthStar}
-                placeholder="Who am I becoming?"
-                placeholderTextColor="#666"
-              />
-
-              <Text style={styles.coachInputLabel}>Weekly Focus</Text>
-              <TextInput
-                style={styles.coachInput}
-                multiline
-                value={weeklyFocus}
-                onChangeText={setWeeklyFocus}
-                placeholder="What matters most this week?"
-                placeholderTextColor="#666"
-              />
-
-              <Text style={styles.coachInputLabel}>Daily Alignment</Text>
-              <View style={styles.alignmentRow}>
-                {(['yes', 'partial', 'no'] as const).map((k) => (
-                  <TouchableOpacity
-                    key={k}
-                    style={[
-                      styles.alignmentPill,
-                      dailyAlignment === k && styles.alignmentPillActive,
-                    ]}
-                    onPress={() => setDailyAlignment(k)}
+              {!!focusRecommendation?.narrative?.trim() && (
+                <TouchableOpacity
+                  activeOpacity={0.85}
+                  style={styles.focusNarrativeCard}
+                  onPress={() => setIsFocusNudgeExpanded((prev) => !prev)}
+                >
+                  <Text style={styles.focusNarrativeLabel}>
+                    {focusRecommendation.phase ? `${focusRecommendation.phase} nudge` : 'Daily nudge'}
+                  </Text>
+                  <Text
+                    style={styles.focusNarrativeText}
+                    numberOfLines={isFocusNudgeExpanded ? undefined : 5}
                   >
-                    <Text style={[
-                      styles.alignmentPillText,
-                      dailyAlignment === k && styles.alignmentPillTextActive,
-                    ]}>
-                      {k === 'yes' ? 'Aligned' : k === 'partial' ? 'Partially' : 'Off-track'}
+                    {focusRecommendation.narrative.trim()}
+                  </Text>
+                  {focusRecommendation.narrative.trim().length > 220 && (
+                    <Text style={styles.focusNarrativeToggle}>
+                      {isFocusNudgeExpanded ? 'Show less' : 'Read full nudge'}
                     </Text>
-                  </TouchableOpacity>
-                ))}
+                  )}
+                </TouchableOpacity>
+              )}
+
+              <View style={styles.focusCallout}>
+                <Text style={styles.focusCalloutLabel}>Primary Focus</Text>
+                <Text style={styles.focusCalloutTitle}>
+                  {primaryFocus ? fixName(primaryFocus.entry.title) : 'Nothing selected yet'}
+                </Text>
+                <Text style={styles.focusCalloutBody}>
+                  {primaryFocus
+                    ? 'This rises because it is meaningful and under-tended. Treat it as today’s best candidate, not a moral judgment.'
+                    : 'Open commitments exist, but no focus move has been chosen yet.'}
+                </Text>
+                {!!focusReason && (
+                  <Text style={styles.focusReasonText}>{focusReason}</Text>
+                )}
+                {!!suggestedStarterStep && (
+                  <Text style={styles.focusStarterText}>5-minute starter: {suggestedStarterStep}</Text>
+                )}
               </View>
 
-              <TouchableOpacity style={styles.coachSaveButton} onPress={saveCompass}>
-                <Text style={styles.coachSaveButtonText}>Save Compass</Text>
-              </TouchableOpacity>
-              {!!compassUpdatedAt && (
-                <Text style={styles.coachCardCta}>Last saved: {formatDate(compassUpdatedAt)}</Text>
+              <View style={styles.focusMeaningCard}>
+                <Text style={styles.focusMeaningLabel}>Why This Matters</Text>
+                <Text style={styles.focusMeaningText}>{whyThisMatters}</Text>
+              </View>
+
+              <View style={styles.focusValuesCard}>
+                <Text style={styles.focusValuesLabel}>Values Mirror</Text>
+                <Text style={styles.focusValuesText}>{valuesMirrorText}</Text>
+                {topValues.length > 0 && (
+                  <View style={styles.focusValuesPills}>
+                    {topValues.map((value) => (
+                      <View key={value.key} style={styles.focusValuePill}>
+                        <Text style={styles.focusValuePillText}>
+                          {value.label}
+                          {value.gap >= 3 ? ' !' : ''}
+                        </Text>
+                      </View>
+                    ))}
+                  </View>
+                )}
+              </View>
+
+              {secondaryFocus.length > 0 && (
+                <View style={styles.focusSupportList}>
+                  <Text style={styles.progressionSectionLabel}>Still alive, but not first</Text>
+                  {secondaryFocus.map(({ entry }) => (
+                    <Text key={entry.id} style={styles.focusSupportItem}>• {fixName(entry.title)}</Text>
+                  ))}
+                </View>
               )}
-            </View>
-
-            <View style={styles.coachCard}>
-              <Text style={styles.coachCardTitle}>Daily Check-in</Text>
-              <Text style={styles.coachCardBody}>Turn today into one meaningful move with a realistic blocker and time lock.</Text>
-
-              <Text style={styles.coachInputLabel}>Today’s Move</Text>
-              <TextInput
-                style={styles.coachInput}
-                multiline
-                value={dailyMove}
-                onChangeText={setDailyMove}
-                placeholder="What is the one move that matters today?"
-                placeholderTextColor="#666"
-              />
-
-              <Text style={styles.coachInputLabel}>Likely Blocker</Text>
-              <TextInput
-                style={styles.coachInput}
-                multiline
-                value={dailyBlocker}
-                onChangeText={setDailyBlocker}
-                placeholder="What could derail this?"
-                placeholderTextColor="#666"
-              />
-
-              <Text style={styles.coachInputLabel}>When</Text>
-              <TextInput
-                style={styles.coachInput}
-                value={dailyWhen}
-                onChangeText={setDailyWhen}
-                placeholder="e.g. 16:30 after gym"
-                placeholderTextColor="#666"
-              />
-
-              <TouchableOpacity style={styles.coachSaveButton} onPress={saveDailyCheckin}>
-                <Text style={styles.coachSaveButtonText}>Save Daily Check-in</Text>
-              </TouchableOpacity>
-              {!!dailyCheckinUpdatedAt && (
-                <Text style={styles.coachCardCta}>Last saved: {formatDate(dailyCheckinUpdatedAt)}</Text>
-              )}
-            </View>
-
-            <View style={styles.coachCard}>
-              <Text style={styles.coachCardTitle}>Weekly Review</Text>
-              <Text style={styles.coachCardBody}>Review what moved, what stalled, and why. You’ll get one strategic focus for the next week based on real commitment history.</Text>
-            </View>
-
-            <View style={styles.coachCard}>
-              <Text style={styles.coachCardTitle}>Deep Session</Text>
-              <Text style={styles.coachCardBody}>Therapeutic coaching mode: unpack emotion, reflect on identity patterns, then turn insight into one brave, practical action.</Text>
             </View>
           </ScrollView>
         ) : activeTab === 'commitments' ? (
@@ -1477,12 +1714,61 @@ export default function App() {
             />
           )
         ) : (
+          <>
+          <ScrollView
+            horizontal
+            showsHorizontalScrollIndicator={false}
+            style={styles.filterBar}
+            contentContainerStyle={styles.filterBarContent}
+          >
+            <TouchableOpacity
+              style={[
+                styles.filterChip,
+                activeFilter === null && styles.filterChipActive,
+              ]}
+              onPress={() => {
+                Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+                setActiveFilter(null);
+              }}
+            >
+              <Text style={[
+                styles.filterChipText,
+                activeFilter === null && styles.filterChipTextActive,
+              ]}>
+                All
+              </Text>
+            </TouchableOpacity>
+            {renaissanceConfig.categories.map((category) => (
+              <TouchableOpacity
+                key={category.id}
+                style={[
+                  styles.filterChip,
+                  activeFilter === category.id && styles.filterChipActive,
+                  activeFilter === category.id && { borderColor: category.color },
+                ]}
+                onPress={() => {
+                  Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+                  setActiveFilter(category.id);
+                }}
+              >
+                <Text style={styles.filterChipIcon}>{category.icon}</Text>
+                <Text style={[
+                  styles.filterChipText,
+                  activeFilter === category.id && styles.filterChipTextActive,
+                  activeFilter === category.id && { color: category.color },
+                ]}>
+                  {category.label}
+                </Text>
+              </TouchableOpacity>
+            ))}
+          </ScrollView>
           <FlatList
-            data={activeFilter ? visibleEntries.filter(e => e.type === activeFilter) : visibleEntries}
+            data={filteredCaptureEntries}
             renderItem={renderEntry}
             keyExtractor={(item) => item.id}
             style={styles.entryList}
             showsVerticalScrollIndicator={false}
+            ListFooterComponent={filteredCaptureEntries.length > 0 ? renderCaptureListFooter : null}
             refreshControl={
               <RefreshControl
                 refreshing={isRefreshing}
@@ -1491,6 +1777,7 @@ export default function App() {
               />
             }
           />
+          </>
         )}
       </View>
 
@@ -1499,6 +1786,9 @@ export default function App() {
 
       {/* Gate #2 */}
       {renderCommitmentGate()}
+
+      {/* AI commitment review */}
+      {renderCommitmentReview()}
     </View>
   );
 }
@@ -1573,6 +1863,14 @@ const styles = StyleSheet.create({
     color: '#FFFFFF',
     fontWeight: '500',
   },
+  spiritAnimalReading: {
+    color: '#9FD7DD',
+    fontSize: 12,
+    lineHeight: 18,
+    textAlign: 'center',
+    marginTop: 8,
+    maxWidth: 300,
+  },
   // Accountability Banner
   accountabilityBanner: {
     width: '100%',
@@ -1618,7 +1916,7 @@ const styles = StyleSheet.create({
   // Fixed Header Area (Filter + Mirror)
   fixedHeader: {
     width: '100%',
-    maxHeight: 200,
+    maxHeight: 260,
     zIndex: 10,
   },
   // Filter Bar
@@ -1754,6 +2052,110 @@ const styles = StyleSheet.create({
     marginBottom: 16,
     letterSpacing: 1,
   },
+  progressionCard: {
+    borderWidth: 1,
+    borderColor: 'rgba(0, 229, 255, 0.18)',
+    borderRadius: 16,
+    padding: 16,
+    backgroundColor: '#0b0f10',
+    marginBottom: 16,
+  },
+  progressionEyebrow: {
+    color: '#00E5FF',
+    fontSize: 11,
+    fontWeight: '700',
+    letterSpacing: 1.6,
+    textTransform: 'uppercase',
+    marginBottom: 8,
+  },
+  progressionTitle: {
+    color: '#FFFFFF',
+    fontSize: 18,
+    lineHeight: 24,
+    fontWeight: '600',
+    marginBottom: 8,
+  },
+  progressionBody: {
+    color: '#A7B4B8',
+    fontSize: 13,
+    lineHeight: 20,
+    marginBottom: 14,
+  },
+  progressionPrimaryBlock: {
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.08)',
+    borderRadius: 14,
+    padding: 14,
+    backgroundColor: 'rgba(255,255,255,0.03)',
+    marginBottom: 14,
+  },
+  progressionNudgeCard: {
+    borderWidth: 1,
+    borderColor: 'rgba(255, 107, 107, 0.18)',
+    borderRadius: 14,
+    padding: 12,
+    backgroundColor: 'rgba(255, 107, 107, 0.05)',
+    marginBottom: 14,
+  },
+  progressionNudgeLabel: {
+    color: '#FF9B9B',
+    fontSize: 11,
+    fontWeight: '700',
+    letterSpacing: 1.1,
+    textTransform: 'uppercase',
+    marginBottom: 6,
+  },
+  progressionNudgeText: {
+    color: '#F3E6E6',
+    fontSize: 13,
+    lineHeight: 19,
+  },
+  progressionSectionLabel: {
+    color: '#88C9D1',
+    fontSize: 11,
+    fontWeight: '700',
+    letterSpacing: 1.2,
+    textTransform: 'uppercase',
+    marginBottom: 8,
+  },
+  progressionPrimaryText: {
+    color: '#FFFFFF',
+    fontSize: 17,
+    lineHeight: 24,
+    fontWeight: '600',
+    marginBottom: 8,
+  },
+  progressionMeta: {
+    color: '#9AA7AA',
+    fontSize: 12,
+    lineHeight: 18,
+    marginTop: 2,
+  },
+  progressionEmptyText: {
+    color: '#7D8C90',
+    fontSize: 14,
+    lineHeight: 20,
+    fontStyle: 'italic',
+  },
+  progressionTimeline: {
+    gap: 10,
+  },
+  progressionStep: {
+    borderLeftWidth: 2,
+    borderLeftColor: 'rgba(0, 229, 255, 0.35)',
+    paddingLeft: 12,
+  },
+  progressionStepLabel: {
+    color: '#D8F8FB',
+    fontSize: 13,
+    fontWeight: '700',
+    marginBottom: 2,
+  },
+  progressionStepText: {
+    color: '#90A2A6',
+    fontSize: 13,
+    lineHeight: 18,
+  },
   entryList: {
     flex: 1,
   },
@@ -1768,6 +2170,17 @@ const styles = StyleSheet.create({
     color: '#9a9a9a',
     fontSize: 14,
     lineHeight: 20,
+  },
+  captureListFooter: {
+    paddingVertical: 18,
+    paddingHorizontal: 4,
+  },
+  captureListFooterText: {
+    color: '#666666',
+    fontSize: 12,
+    lineHeight: 18,
+    textAlign: 'center',
+    fontStyle: 'italic',
   },
   commitmentListCard: {
     borderWidth: 1,
@@ -1869,6 +2282,146 @@ const styles = StyleSheet.create({
     color: '#8a8a8a',
     fontSize: 12,
     fontStyle: 'italic',
+  },
+  focusCallout: {
+    borderWidth: 1,
+    borderColor: 'rgba(255, 165, 0, 0.28)',
+    borderRadius: 12,
+    padding: 12,
+    backgroundColor: 'rgba(255, 165, 0, 0.06)',
+    marginTop: 6,
+  },
+  focusNarrativeCard: {
+    borderWidth: 1,
+    borderColor: 'rgba(0, 229, 255, 0.22)',
+    borderRadius: 12,
+    padding: 12,
+    backgroundColor: 'rgba(0, 229, 255, 0.06)',
+    marginTop: 6,
+    marginBottom: 12,
+  },
+  focusNarrativeLabel: {
+    color: '#7FEFFF',
+    fontSize: 11,
+    fontWeight: '700',
+    letterSpacing: 1.2,
+    textTransform: 'uppercase',
+    marginBottom: 6,
+  },
+  focusNarrativeText: {
+    color: '#E9FDFF',
+    fontSize: 13,
+    lineHeight: 20,
+  },
+  focusNarrativeToggle: {
+    color: '#8EEBFF',
+    fontSize: 12,
+    fontWeight: '700',
+    marginTop: 8,
+  },
+  focusCalloutLabel: {
+    color: '#FFC36B',
+    fontSize: 11,
+    fontWeight: '700',
+    letterSpacing: 1.2,
+    textTransform: 'uppercase',
+    marginBottom: 6,
+  },
+  focusCalloutTitle: {
+    color: '#FFFFFF',
+    fontSize: 17,
+    lineHeight: 23,
+    fontWeight: '600',
+    marginBottom: 6,
+  },
+  focusCalloutBody: {
+    color: '#DDD2C1',
+    fontSize: 13,
+    lineHeight: 19,
+  },
+  focusReasonText: {
+    color: '#F7D39A',
+    fontSize: 12,
+    lineHeight: 18,
+    marginTop: 8,
+    fontStyle: 'italic',
+  },
+  focusStarterText: {
+    color: '#FFE4B3',
+    fontSize: 13,
+    lineHeight: 19,
+    marginTop: 8,
+    fontWeight: '600',
+  },
+  focusMeaningCard: {
+    borderWidth: 1,
+    borderColor: 'rgba(46, 204, 113, 0.24)',
+    borderRadius: 12,
+    padding: 12,
+    backgroundColor: 'rgba(46, 204, 113, 0.06)',
+    marginTop: 12,
+  },
+  focusMeaningLabel: {
+    color: '#8DE5B1',
+    fontSize: 11,
+    fontWeight: '700',
+    letterSpacing: 1.1,
+    textTransform: 'uppercase',
+    marginBottom: 6,
+  },
+  focusMeaningText: {
+    color: '#E8F8EF',
+    fontSize: 13,
+    lineHeight: 20,
+  },
+  focusValuesCard: {
+    borderWidth: 1,
+    borderColor: 'rgba(255, 217, 61, 0.22)',
+    borderRadius: 12,
+    padding: 12,
+    backgroundColor: 'rgba(255, 217, 61, 0.05)',
+    marginTop: 12,
+  },
+  focusValuesLabel: {
+    color: '#FFD971',
+    fontSize: 11,
+    fontWeight: '700',
+    letterSpacing: 1.1,
+    textTransform: 'uppercase',
+    marginBottom: 6,
+  },
+  focusValuesText: {
+    color: '#FFF6D8',
+    fontSize: 13,
+    lineHeight: 20,
+  },
+  focusValuesPills: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 8,
+    marginTop: 10,
+  },
+  focusValuePill: {
+    borderWidth: 1,
+    borderColor: 'rgba(255, 217, 61, 0.3)',
+    borderRadius: 14,
+    paddingHorizontal: 10,
+    paddingVertical: 5,
+    backgroundColor: 'rgba(255, 217, 61, 0.08)',
+  },
+  focusValuePillText: {
+    color: '#FFE9A6',
+    fontSize: 12,
+    fontWeight: '700',
+  },
+  focusSupportList: {
+    marginTop: 12,
+  },
+  focusSupportItem: {
+    color: '#D7D7D7',
+    fontSize: 13,
+    lineHeight: 20,
+    marginBottom: 4,
   },
   coachInputLabel: {
     color: '#B8B8B8',
@@ -2292,14 +2845,17 @@ const styles = StyleSheet.create({
   morningMirrorCard: {
     marginHorizontal: 16,
     marginTop: 8,
-    padding: 14,
+    paddingHorizontal: 16,
+    paddingVertical: 16,
+    minHeight: 92,
     backgroundColor: 'rgba(255, 107, 107, 0.04)',
     borderRadius: 16,
     borderWidth: 1,
     borderColor: 'rgba(255, 107, 107, 0.12)',
   },
   morningMirrorCardCollapsed: {
-    padding: 10,
+    minHeight: 0,
+    paddingVertical: 12,
   },
   morningMirrorHeader: {
     flexDirection: 'row',
@@ -2321,8 +2877,8 @@ const styles = StyleSheet.create({
   },
   morningMirrorSubtitle: {
     color: '#666666',
-    fontSize: 10,
-    marginTop: 1,
+    fontSize: 9,
+    marginTop: 2,
     fontStyle: 'italic',
   },
   morningMirrorChevron: {
@@ -2331,14 +2887,13 @@ const styles = StyleSheet.create({
     opacity: 0.6,
   },
   morningMirrorSynthesis: {
-    // Philosophy Style - readable but compact
     color: '#DDDDDD',
-    fontSize: 15,
-    lineHeight: 24,
+    fontSize: 13,
+    lineHeight: 20,
     fontStyle: 'italic',
-    letterSpacing: 0.3,
+    letterSpacing: 0.2,
     textAlign: 'center',
-    marginTop: 10,
+    marginTop: 12,
   },
 
   // ── Commitment styles ──────────────────────────────────────────────────────
@@ -2422,11 +2977,21 @@ const styles = StyleSheet.create({
     fontWeight: '600',
   },
   commitmentReasoning: {
-    color: '#555555',
-    fontSize: 12,
+    color: '#8C8C8C',
+    fontSize: 13,
     fontStyle: 'italic',
     marginTop: 4,
     lineHeight: 18,
+    fontWeight: '500',
+  },
+  renaissanceFooterText: {
+    marginTop: 30,
+    color: '#8A8A8A',
+    fontSize: 14,
+    textAlign: 'center',
+    fontStyle: 'italic',
+    fontWeight: '600',
+    lineHeight: 20,
   },
 
   // Gate #2 modal
@@ -2445,6 +3010,115 @@ const styles = StyleSheet.create({
     borderColor: 'rgba(255, 165, 0, 0.5)',
     borderRadius: 16,
     padding: 20,
+  },
+  reviewCard: {
+    width: '100%',
+    maxWidth: 460,
+    maxHeight: '82%',
+    backgroundColor: '#0a0a0a',
+    borderWidth: 1,
+    borderColor: 'rgba(0, 229, 255, 0.35)',
+    borderRadius: 16,
+    padding: 18,
+  },
+  reviewHeader: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    justifyContent: 'space-between',
+    marginBottom: 14,
+    gap: 12,
+  },
+  reviewHeaderTextWrap: {
+    flex: 1,
+  },
+  reviewTitle: {
+    color: '#00E5FF',
+    fontSize: 16,
+    fontWeight: '700',
+    letterSpacing: 1,
+    marginBottom: 8,
+    textTransform: 'uppercase',
+  },
+  reviewBody: {
+    color: '#FFFFFF',
+    fontSize: 14,
+    lineHeight: 21,
+  },
+  reviewList: {
+    maxHeight: 420,
+  },
+  reviewItemCard: {
+    borderWidth: 1,
+    borderColor: '#1f1f1f',
+    borderRadius: 12,
+    padding: 12,
+    marginBottom: 10,
+    backgroundColor: '#0d0d0d',
+  },
+  reviewItemTitle: {
+    color: '#FFFFFF',
+    fontSize: 15,
+    fontWeight: '600',
+    marginBottom: 6,
+  },
+  reviewItemMeta: {
+    fontSize: 11,
+    fontWeight: '700',
+    letterSpacing: 0.8,
+    textTransform: 'uppercase',
+    marginBottom: 8,
+  },
+  reviewItemReasoning: {
+    color: '#CFCFCF',
+    fontSize: 13,
+    lineHeight: 19,
+    marginBottom: 10,
+  },
+  reviewActions: {
+    flexDirection: 'row',
+    gap: 8,
+  },
+  reviewKeepButton: {
+    flex: 1,
+    backgroundColor: '#00E5FF',
+    borderRadius: 10,
+    paddingVertical: 10,
+    alignItems: 'center',
+  },
+  reviewKeepButtonText: {
+    color: '#001217',
+    fontSize: 13,
+    fontWeight: '700',
+    letterSpacing: 0.4,
+  },
+  reviewDismissButton: {
+    flex: 1,
+    borderWidth: 1,
+    borderColor: '#666666',
+    borderRadius: 10,
+    paddingVertical: 10,
+    alignItems: 'center',
+    backgroundColor: 'rgba(255, 255, 255, 0.03)',
+  },
+  reviewDismissButtonText: {
+    color: '#BBBBBB',
+    fontSize: 13,
+    fontWeight: '600',
+  },
+  reviewDoneButton: {
+    marginTop: 6,
+    borderWidth: 1,
+    borderColor: '#2a2a2a',
+    borderRadius: 10,
+    paddingVertical: 12,
+    alignItems: 'center',
+    backgroundColor: '#101010',
+  },
+  reviewDoneButtonText: {
+    color: '#FFFFFF',
+    fontSize: 13,
+    fontWeight: '700',
+    letterSpacing: 0.4,
   },
   gateTitle: {
     color: '#FFA500',
