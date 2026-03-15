@@ -1410,15 +1410,15 @@ export default function App() {
             <Text style={styles.spiritAnimalLabel}>Spirit Animal</Text>
             <Text style={styles.spiritAnimal}>{spiritAnimalTitle}</Text>
           </View>
-          <View style={styles.spiritAnimalToggle}>
-            <Text style={styles.spiritAnimalChevron}>
-              {isSpiritAnimalCollapsed ? '▼' : '▲'}
-            </Text>
-          </View>
         </View>
         {!isSpiritAnimalCollapsed && (
           <Text style={styles.spiritAnimalReading}>{spiritAnimalReading}</Text>
         )}
+        <View style={styles.spiritAnimalToggle}>
+          <Text style={styles.spiritAnimalChevron}>
+            {isSpiritAnimalCollapsed ? '▼' : '▲'}
+          </Text>
+        </View>
       </TouchableOpacity>
 
       {/* Accountability Banner - Bottleneck Detector */}
@@ -1831,19 +1831,19 @@ const styles = StyleSheet.create({
     paddingVertical: 12,
   },
   spiritAnimalHeader: {
-    flexDirection: 'row',
     alignItems: 'center',
+    justifyContent: 'center',
   },
   spiritAnimalIcon: {
     fontSize: 20,
-    marginRight: 10,
+    marginBottom: 6,
   },
   spiritAnimalTitleGroup: {
-    flex: 1,
+    alignItems: 'center',
   },
   spiritAnimalToggle: {
-    paddingLeft: 12,
-    alignItems: 'flex-end',
+    marginTop: 10,
+    alignItems: 'center',
     justifyContent: 'center',
   },
   spiritAnimalLabel: {
@@ -1851,12 +1851,14 @@ const styles = StyleSheet.create({
     color: '#666666',
     textTransform: 'uppercase',
     letterSpacing: 1.5,
+    textAlign: 'center',
   },
   spiritAnimal: {
     fontSize: 15,
     color: '#FFFFFF',
     fontWeight: '600',
     marginTop: 2,
+    textAlign: 'center',
   },
   spiritAnimalReading: {
     color: '#9FD7DD',
