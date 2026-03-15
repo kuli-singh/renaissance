@@ -778,6 +778,11 @@ export default function App() {
       : openCommitmentItems.length > 5
         ? `${spiritAnimal} is warning about cognitive overload. Too many open loops are competing with each other. Keep the full map, but let only one thing lead today.`
         : `${spiritAnimal} reflects the story you are living, not just your mood. Let today’s focus prove one value in action, not just in language.`;
+  const firstSpiritAnimalSpace = spiritAnimal.indexOf(' ');
+  const spiritAnimalIcon = firstSpiritAnimalSpace > 0 ? spiritAnimal.slice(0, firstSpiritAnimalSpace) : '🦋';
+  const spiritAnimalTitle = firstSpiritAnimalSpace > 0
+    ? spiritAnimal.slice(firstSpiritAnimalSpace + 1)
+    : spiritAnimal;
 
   const openDetail = (entry: AnimatedEntry) => {
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
@@ -1388,29 +1393,33 @@ export default function App() {
       </View>
 
       {/* Spirit Animal */}
-      <View style={styles.spiritAnimalContainer}>
+      <TouchableOpacity
+        activeOpacity={0.8}
+        onPress={() => {
+          Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+          setIsSpiritAnimalCollapsed(!isSpiritAnimalCollapsed);
+        }}
+        style={[
+          styles.spiritAnimalContainer,
+          isSpiritAnimalCollapsed && styles.spiritAnimalContainerCollapsed,
+        ]}
+      >
         <View style={styles.spiritAnimalHeader}>
+          <Text style={styles.spiritAnimalIcon}>{spiritAnimalIcon}</Text>
           <View style={styles.spiritAnimalTitleGroup}>
             <Text style={styles.spiritAnimalLabel}>Spirit Animal</Text>
-            <Text style={styles.spiritAnimal}>{spiritAnimal}</Text>
+            <Text style={styles.spiritAnimal}>{spiritAnimalTitle}</Text>
           </View>
-          <TouchableOpacity
-            activeOpacity={0.8}
-            onPress={() => {
-              Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-              setIsSpiritAnimalCollapsed(!isSpiritAnimalCollapsed);
-            }}
-            style={styles.spiritAnimalToggle}
-          >
+          <View style={styles.spiritAnimalToggle}>
             <Text style={styles.spiritAnimalChevron}>
               {isSpiritAnimalCollapsed ? '▼' : '▲'}
             </Text>
-          </TouchableOpacity>
+          </View>
         </View>
         {!isSpiritAnimalCollapsed && (
           <Text style={styles.spiritAnimalReading}>{spiritAnimalReading}</Text>
         )}
-      </View>
+      </TouchableOpacity>
 
       {/* Accountability Banner - Bottleneck Detector */}
       {ENABLE_BOTTLENECK_BANNER && showBottleneckBanner && bottleneck && (
@@ -1809,52 +1818,58 @@ const styles = StyleSheet.create({
   },
   spiritAnimalContainer: {
     marginBottom: 16,
-    paddingHorizontal: 20,
-    paddingVertical: 10,
+    paddingHorizontal: 16,
+    paddingVertical: 14,
+    minHeight: 76,
     backgroundColor: 'rgba(0, 255, 255, 0.05)',
-    borderRadius: 12,
+    borderRadius: 16,
     borderWidth: 1,
     borderColor: 'rgba(0, 255, 255, 0.1)',
+  },
+  spiritAnimalContainerCollapsed: {
+    minHeight: 0,
+    paddingVertical: 12,
   },
   spiritAnimalHeader: {
     flexDirection: 'row',
     alignItems: 'center',
-    justifyContent: 'space-between',
+  },
+  spiritAnimalIcon: {
+    fontSize: 20,
+    marginRight: 10,
   },
   spiritAnimalTitleGroup: {
     flex: 1,
-    alignItems: 'center',
   },
   spiritAnimalToggle: {
-    paddingVertical: 6,
     paddingLeft: 12,
-    paddingRight: 4,
+    alignItems: 'flex-end',
+    justifyContent: 'center',
   },
   spiritAnimalLabel: {
-    fontSize: 10,
+    fontSize: 12,
     color: '#666666',
     textTransform: 'uppercase',
-    letterSpacing: 2,
-    marginBottom: 4,
+    letterSpacing: 1.5,
   },
   spiritAnimal: {
-    fontSize: 16,
+    fontSize: 15,
     color: '#FFFFFF',
-    fontWeight: '500',
+    fontWeight: '600',
+    marginTop: 2,
   },
   spiritAnimalReading: {
     color: '#9FD7DD',
     fontSize: 12,
     lineHeight: 18,
     textAlign: 'center',
-    marginTop: 8,
-    maxWidth: 300,
+    marginTop: 12,
   },
   spiritAnimalChevron: {
     color: '#88C9D1',
-    fontSize: 12,
+    fontSize: 10,
     fontWeight: '700',
-    marginLeft: 12,
+    opacity: 0.7,
   },
   // Accountability Banner
   accountabilityBanner: {
