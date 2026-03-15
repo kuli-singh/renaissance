@@ -1404,21 +1404,25 @@ export default function App() {
           isSpiritAnimalCollapsed && styles.spiritAnimalContainerCollapsed,
         ]}
       >
-        <View style={styles.spiritAnimalHeader}>
-          <Text style={styles.spiritAnimalIcon}>{spiritAnimalIcon}</Text>
-          <View style={styles.spiritAnimalTitleGroup}>
+        <View style={styles.spiritAnimalTopRow}>
+          <View style={styles.spiritAnimalSide}>
             <Text style={styles.spiritAnimalLabel}>Spirit Animal</Text>
-            <Text style={styles.spiritAnimal}>{spiritAnimalTitle}</Text>
+          </View>
+          <View style={styles.spiritAnimalHeader}>
+            <Text style={styles.spiritAnimalIcon}>{spiritAnimalIcon}</Text>
+            <View style={styles.spiritAnimalTitleGroup}>
+              <Text style={styles.spiritAnimal}>{spiritAnimalTitle}</Text>
+            </View>
+          </View>
+          <View style={[styles.spiritAnimalSide, styles.spiritAnimalToggle]}>
+            <Text style={styles.spiritAnimalChevron}>
+              {isSpiritAnimalCollapsed ? '▼' : '▲'}
+            </Text>
           </View>
         </View>
         {!isSpiritAnimalCollapsed && (
           <Text style={styles.spiritAnimalReading}>{spiritAnimalReading}</Text>
         )}
-        <View style={styles.spiritAnimalToggle}>
-          <Text style={styles.spiritAnimalChevron}>
-            {isSpiritAnimalCollapsed ? '▼' : '▲'}
-          </Text>
-        </View>
       </TouchableOpacity>
 
       {/* Accountability Banner - Bottleneck Detector */}
@@ -1830,34 +1834,40 @@ const styles = StyleSheet.create({
     minHeight: 0,
     paddingVertical: 12,
   },
+  spiritAnimalTopRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
+  spiritAnimalSide: {
+    flex: 1,
+  },
   spiritAnimalHeader: {
+    flex: 1.5,
+    flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
   },
   spiritAnimalIcon: {
     fontSize: 20,
-    marginBottom: 6,
+    marginRight: 8,
   },
   spiritAnimalTitleGroup: {
     alignItems: 'center',
   },
   spiritAnimalToggle: {
-    marginTop: 10,
-    alignItems: 'center',
-    justifyContent: 'center',
+    alignItems: 'flex-end',
   },
   spiritAnimalLabel: {
     fontSize: 12,
     color: '#666666',
     textTransform: 'uppercase',
     letterSpacing: 1.5,
-    textAlign: 'center',
+    textAlign: 'left',
   },
   spiritAnimal: {
     fontSize: 15,
     color: '#FFFFFF',
     fontWeight: '600',
-    marginTop: 2,
     textAlign: 'center',
   },
   spiritAnimalReading: {
