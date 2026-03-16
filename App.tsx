@@ -1822,6 +1822,7 @@ const styles = StyleSheet.create({
     marginBottom: 16,
     paddingHorizontal: 16,
     paddingVertical: 14,
+    minHeight: 76,
     backgroundColor: 'rgba(0, 255, 255, 0.05)',
     borderRadius: 16,
     borderWidth: 1,
@@ -1830,6 +1831,9 @@ const styles = StyleSheet.create({
   spiritAnimalTopRow: {
     flexDirection: 'row',
     alignItems: 'center',
+    justifyContent: 'space-between',
+    width: '100%',
+    minHeight: 48,
   },
   spiritAnimalHeaderSpacer: {
     width: 24,
@@ -1837,6 +1841,7 @@ const styles = StyleSheet.create({
   spiritAnimalHeader: {
     flex: 1,
     justifyContent: 'center',
+    paddingHorizontal: 8,
   },
   spiritAnimalTitleGroup: {
     flexDirection: 'row',
