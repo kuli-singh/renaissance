@@ -221,7 +221,7 @@ export default function App() {
   const recordPressLockRef = useRef(false);
   const focusPagerRef = useRef<ScrollView | null>(null);
   const focusDates = Array.from({ length: FOCUS_HISTORY_DAYS }, (_, index) => getDateStringDaysAgo(index));
-  const focusPageWidth = Math.max(windowWidth - 40, 1);
+  const focusPageWidth = Math.max(windowWidth, 1);
 
   const loadData = useCallback(async () => {
     try {
