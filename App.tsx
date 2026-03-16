@@ -17,6 +17,7 @@ import {
   TouchableOpacity,
   TextInput,
   useWindowDimensions,
+  LayoutChangeEvent,
 } from 'react-native';
 import { transcribeAudio, processThought, generateDailyMirror, renaissanceConfig } from './lib/openai';
 import {
@@ -175,6 +176,8 @@ const scoreFocusCandidate = (entry: AnimatedEntry, commitment: Commitment, weekl
 
 export default function App() {
   const { width: windowWidth } = useWindowDimensions();
+  const focusPagerSideInset = 20;
+  const [focusPagerViewportWidth, setFocusPagerViewportWidth] = useState(0);
   const [entries, setEntries] = useState<AnimatedEntry[]>([]);
   const [isRecording, setIsRecording] = useState(false);
   const [isProcessing, setIsProcessing] = useState(false);
@@ -221,7 +224,20 @@ export default function App() {
   const recordPressLockRef = useRef(false);
   const focusPagerRef = useRef<ScrollView | null>(null);
   const focusDates = Array.from({ length: FOCUS_HISTORY_DAYS }, (_, index) => getDateStringDaysAgo(index));
-  const focusPageWidth = Math.max(windowWidth, 1);
+  const focusPageWidth = Math.max(focusPagerViewportWidth || windowWidth, 1);
+  const focusPagerViewportStyle = {
+    width: focusPageWidth,
+    marginLeft: -focusPagerSideInset,
+  } as const;
+
+  const handleFocusPagerLayout = useCallback((event: LayoutChangeEvent) => {
+    const nextWidth = Math.round(event.nativeEvent.layout.width);
+    if (nextWidth > 0) {
+      setFocusPagerViewportWidth((currentWidth) => (
+        currentWidth === nextWidth ? currentWidth : nextWidth
+      ));
+    }
+  }, []);
 
   const loadData = useCallback(async () => {
     try {
@@ -1835,13 +1851,16 @@ export default function App() {
             />
           </ScrollView>
         ) : activeTab === 'focus' ? (
-          <View style={styles.focusPagerContainer}>
+          <View
+            style={[styles.focusPagerContainer, focusPagerViewportStyle]}
+            onLayout={handleFocusPagerLayout}
+          >
             <ScrollView
               ref={focusPagerRef}
               horizontal
               pagingEnabled
               showsHorizontalScrollIndicator={false}
-              style={styles.focusPager}
+              style={[styles.focusPager, { width: focusPageWidth }]}
               contentContainerStyle={styles.focusPagerContent}
               onMomentumScrollEnd={(event) => {
                 const nextIndex = Math.round(event.nativeEvent.contentOffset.x / focusPageWidth);
@@ -2476,7 +2495,6 @@ const styles = StyleSheet.create({
   },
   focusPagerContainer: {
     flex: 1,
-    marginHorizontal: -20,
   },
   focusPager: {
     flex: 1,
