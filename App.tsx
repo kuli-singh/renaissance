@@ -1393,18 +1393,15 @@ export default function App() {
       </View>
 
       {/* Spirit Animal */}
-      <TouchableOpacity
-        activeOpacity={0.8}
-        onPress={() => {
-          Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-          setIsSpiritAnimalCollapsed(!isSpiritAnimalCollapsed);
-        }}
-        style={[
-          styles.spiritAnimalContainer,
-          isSpiritAnimalCollapsed && styles.spiritAnimalContainerCollapsed,
-        ]}
-      >
-        <View style={styles.spiritAnimalTopRow}>
+      <View style={styles.spiritAnimalContainer}>
+        <TouchableOpacity
+          activeOpacity={0.8}
+          onPress={() => {
+            Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+            setIsSpiritAnimalCollapsed(!isSpiritAnimalCollapsed);
+          }}
+          style={styles.spiritAnimalTopRow}
+        >
           <View style={styles.spiritAnimalHeaderSpacer} />
           <View style={styles.spiritAnimalHeader}>
             <Text style={styles.spiritAnimalLabel}>Spirit Animal</Text>
@@ -1418,11 +1415,13 @@ export default function App() {
               {isSpiritAnimalCollapsed ? '▼' : '▲'}
             </Text>
           </View>
-        </View>
+        </TouchableOpacity>
         {!isSpiritAnimalCollapsed && (
-          <Text style={styles.spiritAnimalReading}>{spiritAnimalReading}</Text>
+          <View style={styles.spiritAnimalBody}>
+            <Text style={styles.spiritAnimalReading}>{spiritAnimalReading}</Text>
+          </View>
         )}
-      </TouchableOpacity>
+      </View>
 
       {/* Accountability Banner - Bottleneck Detector */}
       {ENABLE_BOTTLENECK_BANNER && showBottleneckBanner && bottleneck && (
@@ -1823,15 +1822,10 @@ const styles = StyleSheet.create({
     marginBottom: 16,
     paddingHorizontal: 16,
     paddingVertical: 14,
-    minHeight: 76,
     backgroundColor: 'rgba(0, 255, 255, 0.05)',
     borderRadius: 16,
     borderWidth: 1,
     borderColor: 'rgba(0, 255, 255, 0.1)',
-  },
-  spiritAnimalContainerCollapsed: {
-    minHeight: 0,
-    paddingVertical: 12,
   },
   spiritAnimalTopRow: {
     flexDirection: 'row',
@@ -1877,6 +1871,8 @@ const styles = StyleSheet.create({
     fontSize: 12,
     lineHeight: 18,
     textAlign: 'center',
+  },
+  spiritAnimalBody: {
     marginTop: 12,
   },
   spiritAnimalChevron: {
