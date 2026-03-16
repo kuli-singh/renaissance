@@ -16,6 +16,7 @@ import {
   ScrollView,
   TouchableOpacity,
   TextInput,
+  useWindowDimensions,
 } from 'react-native';
 import { transcribeAudio, processThought, generateDailyMirror, renaissanceConfig } from './lib/openai';
 import {
@@ -103,11 +104,18 @@ const getDateStringFromTimestamp = (timestamp: string) => timestamp.split('T')[0
 const ENABLE_COMMITMENT_GATE = false;
 const ENABLE_BOTTLENECK_BANNER = false;
 const BUILD_LABEL = 'focus-b1';
+const FOCUS_HISTORY_DAYS = 7;
 
 // Format date for display (e.g., "February 13")
 const formatDateForDisplay = (dateStr: string) => {
   const date = new Date(dateStr + 'T12:00:00'); // Add time to avoid timezone issues
   return date.toLocaleDateString('en-US', { month: 'long', day: 'numeric' });
+};
+
+const getDateStringDaysAgo = (daysAgo: number) => {
+  const date = new Date();
+  date.setDate(date.getDate() - daysAgo);
+  return date.toISOString().split('T')[0];
 };
 
 const shouldGenerateMirror = (lastGeneratedDate: string | null): boolean => {
@@ -166,6 +174,7 @@ const scoreFocusCandidate = (entry: AnimatedEntry, commitment: Commitment, weekl
 };
 
 export default function App() {
+  const { width: windowWidth } = useWindowDimensions();
   const [entries, setEntries] = useState<AnimatedEntry[]>([]);
   const [isRecording, setIsRecording] = useState(false);
   const [isProcessing, setIsProcessing] = useState(false);
@@ -201,6 +210,8 @@ export default function App() {
   const [dailyWhen, setDailyWhen] = useState('');
   const [dailyCheckinUpdatedAt, setDailyCheckinUpdatedAt] = useState<string | null>(null);
   const [focusRecommendation, setFocusRecommendation] = useState<FocusRecommendation | null>(null);
+  const [focusHistory, setFocusHistory] = useState<Record<string, FocusRecommendation | null>>({});
+  const [viewedFocusIndex, setViewedFocusIndex] = useState(0);
   const [isFocusNudgeExpanded, setIsFocusNudgeExpanded] = useState(false);
   const pulseAnim = useRef(new Animated.Value(1)).current;
   const recordingAnim = useRef(new Animated.Value(1)).current;
@@ -208,6 +219,9 @@ export default function App() {
   const recordingRef = useRef<Audio.Recording | null>(null);
   const gateTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const recordPressLockRef = useRef(false);
+  const focusPagerRef = useRef<ScrollView | null>(null);
+  const focusDates = Array.from({ length: FOCUS_HISTORY_DAYS }, (_, index) => getDateStringDaysAgo(index));
+  const focusPageWidth = Math.max(windowWidth - 40, 1);
 
   const loadData = useCallback(async () => {
     try {
@@ -325,18 +339,22 @@ export default function App() {
       const selectedRecommendation = selectFocusRecommendationForPhase(backendRecommendations, currentPhase);
       if (selectedRecommendation) {
         setFocusRecommendation(selectedRecommendation);
+        setFocusHistory((prev) => ({ ...prev, [today]: selectedRecommendation }));
         await Promise.all([
           AsyncStorage.setItem(STORAGE_KEYS.FOCUS_RECOMMENDATION, JSON.stringify(selectedRecommendation)),
           AsyncStorage.setItem(STORAGE_KEYS.FOCUS_RECOMMENDATION_DATE, today),
         ]);
       } else if (storedFocusRecommendation && storedFocusRecommendationDate === today) {
         try {
-          setFocusRecommendation(JSON.parse(storedFocusRecommendation));
+          const parsedRecommendation = JSON.parse(storedFocusRecommendation);
+          setFocusRecommendation(parsedRecommendation);
+          setFocusHistory((prev) => ({ ...prev, [today]: parsedRecommendation }));
         } catch {
           setFocusRecommendation(null);
         }
       } else {
         setFocusRecommendation(null);
+        setFocusHistory((prev) => ({ ...prev, [today]: null }));
       }
     } catch (error) {
       console.error('Error loading data:', error);
@@ -365,6 +383,22 @@ export default function App() {
   useEffect(() => {
     setIsFocusNudgeExpanded(false);
   }, [focusRecommendation?.id]);
+
+  useEffect(() => {
+    if (activeTab === 'focus') {
+      setViewedFocusIndex(0);
+      requestAnimationFrame(() => {
+        focusPagerRef.current?.scrollTo({ x: 0, animated: false });
+      });
+      return;
+    }
+
+    setViewedFocusIndex(0);
+    setIsFocusNudgeExpanded(false);
+    requestAnimationFrame(() => {
+      focusPagerRef.current?.scrollTo({ x: 0, animated: false });
+    });
+  }, [activeTab, focusPageWidth]);
 
   useEffect(() => {
     (async () => {
@@ -446,6 +480,26 @@ export default function App() {
       clearGateTimer();
     };
   }, []);
+
+  useEffect(() => {
+    if (activeTab !== 'focus') return;
+
+    const targetDate = focusDates[viewedFocusIndex];
+    if (!targetDate || Object.prototype.hasOwnProperty.call(focusHistory, targetDate)) return;
+
+    let isCancelled = false;
+
+    (async () => {
+      const recommendations = await fetchFocusRecommendations(targetDate);
+      const selectedRecommendation = selectFocusRecommendationForPhase(recommendations, getCurrentFocusPhase());
+      if (isCancelled) return;
+      setFocusHistory((prev) => ({ ...prev, [targetDate]: selectedRecommendation }));
+    })();
+
+    return () => {
+      isCancelled = true;
+    };
+  }, [activeTab, focusDates, focusHistory, viewedFocusIndex]);
 
   const startRecording = async () => {
     try {
@@ -783,6 +837,141 @@ export default function App() {
   const spiritAnimalTitle = firstSpiritAnimalSpace > 0
     ? spiritAnimal.slice(firstSpiritAnimalSpace + 1)
     : spiritAnimal;
+  const renderFocusPage = (date: string, index: number) => {
+    const isTodayPage = index === 0;
+    const pageRecommendation = isTodayPage
+      ? focusRecommendation
+      : (Object.prototype.hasOwnProperty.call(focusHistory, date) ? focusHistory[date] : undefined);
+    const isLoadingHistory = !isTodayPage && pageRecommendation === undefined;
+    const pageEntry = pageRecommendation?.recommended_focus_thought_id
+      ? visibleEntries.find((entry) => entry.id === pageRecommendation.recommended_focus_thought_id) || null
+      : null;
+    const pageTitle = isTodayPage
+      ? (primaryFocus ? fixName(primaryFocus.entry.title) : 'Nothing selected yet')
+      : (pageEntry ? fixName(pageEntry.title) : 'No archived focus saved');
+    const pageReason = isTodayPage
+      ? focusReason
+      : (pageRecommendation?.recommended_focus_reason?.trim() || '');
+    const pageStarterStep = isTodayPage
+      ? suggestedStarterStep
+      : (pageRecommendation?.starter_step?.trim() || '');
+
+    return (
+      <ScrollView
+        key={date}
+        style={[styles.entryList, { width: focusPageWidth }]}
+        contentContainerStyle={styles.focusPageContent}
+        showsVerticalScrollIndicator={false}
+        nestedScrollEnabled
+        refreshControl={
+          <RefreshControl
+            refreshing={isRefreshing}
+            onRefresh={onRefresh}
+            tintColor="#00FFFF"
+          />
+        }
+      >
+        <View style={styles.coachCard}>
+          <Text style={styles.coachCardTitle}>Right Now</Text>
+          <Text style={styles.coachCardBody}>This layer narrows the day without deleting the rest of your life. Keep the ledger in Commitments. Pick the next visible move here.</Text>
+
+          {!isTodayPage && (
+            <View style={styles.focusDateBadge}>
+              <Text style={styles.focusDateBadgeText}>{formatDateForDisplay(date)}</Text>
+            </View>
+          )}
+
+          {!!pageRecommendation?.narrative?.trim() && (
+            <TouchableOpacity
+              activeOpacity={0.85}
+              style={styles.focusNarrativeCard}
+              onPress={() => isTodayPage && setIsFocusNudgeExpanded((prev) => !prev)}
+              disabled={!isTodayPage}
+            >
+              <Text style={styles.focusNarrativeLabel}>
+                {pageRecommendation.phase ? `${pageRecommendation.phase} nudge` : 'Daily nudge'}
+              </Text>
+              <Text
+                style={styles.focusNarrativeText}
+                numberOfLines={isTodayPage && !isFocusNudgeExpanded ? 5 : undefined}
+              >
+                {pageRecommendation.narrative.trim()}
+              </Text>
+              {isTodayPage && pageRecommendation.narrative.trim().length > 220 && (
+                <Text style={styles.focusNarrativeToggle}>
+                  {isFocusNudgeExpanded ? 'Show less' : 'Read full nudge'}
+                </Text>
+              )}
+            </TouchableOpacity>
+          )}
+
+          <View style={styles.focusCallout}>
+            <Text style={styles.focusCalloutLabel}>{isTodayPage ? 'Primary Focus' : 'Focus Archive'}</Text>
+            <Text style={styles.focusCalloutTitle}>{pageTitle}</Text>
+            <Text style={styles.focusCalloutBody}>
+              {isTodayPage
+                ? (primaryFocus
+                  ? 'This rises because it is meaningful and under-tended. Treat it as today’s best candidate, not a moral judgment.'
+                  : 'Open commitments exist, but no focus move has been chosen yet.')
+                : isLoadingHistory
+                  ? 'Loading archived focus...'
+                  : pageRecommendation
+                    ? 'This is the focus guidance that was saved for this day.'
+                    : 'No focus recommendation was saved for this day.'}
+            </Text>
+            {!!pageReason && (
+              <Text style={styles.focusReasonText}>{pageReason}</Text>
+            )}
+            {!!pageStarterStep && (
+              <Text style={styles.focusStarterText}>5-minute starter: {pageStarterStep}</Text>
+            )}
+          </View>
+
+          {isTodayPage ? (
+            <>
+              <View style={styles.focusMeaningCard}>
+                <Text style={styles.focusMeaningLabel}>Why This Matters</Text>
+                <Text style={styles.focusMeaningText}>{whyThisMatters}</Text>
+              </View>
+
+              <View style={styles.focusValuesCard}>
+                <Text style={styles.focusValuesLabel}>Values Mirror</Text>
+                <Text style={styles.focusValuesText}>{valuesMirrorText}</Text>
+                {topValues.length > 0 && (
+                  <View style={styles.focusValuesPills}>
+                    {topValues.map((value) => (
+                      <View key={value.key} style={styles.focusValuePill}>
+                        <Text style={styles.focusValuePillText}>
+                          {value.label}
+                          {value.gap >= 3 ? ' !' : ''}
+                        </Text>
+                      </View>
+                    ))}
+                  </View>
+                )}
+              </View>
+
+              {secondaryFocus.length > 0 && (
+                <View style={styles.focusSupportList}>
+                  <Text style={styles.progressionSectionLabel}>Still alive, but not first</Text>
+                  {secondaryFocus.map(({ entry }) => (
+                    <Text key={entry.id} style={styles.focusSupportItem}>• {fixName(entry.title)}</Text>
+                  ))}
+                </View>
+              )}
+            </>
+          ) : pageRecommendation ? (
+            <View style={styles.focusMeaningCard}>
+              <Text style={styles.focusMeaningLabel}>Archive Note</Text>
+              <Text style={styles.focusMeaningText}>
+                Swipe back to return to today. Leaving this tab will also reset Focus to today so the main flow always opens on the current day.
+              </Text>
+            </View>
+          ) : null}
+        </View>
+      </ScrollView>
+    );
+  };
 
   const openDetail = (entry: AnimatedEntry) => {
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
@@ -1646,94 +1835,24 @@ export default function App() {
             />
           </ScrollView>
         ) : activeTab === 'focus' ? (
-          <ScrollView
-            style={styles.entryList}
-            showsVerticalScrollIndicator={false}
-            refreshControl={
-              <RefreshControl
-                refreshing={isRefreshing}
-                onRefresh={onRefresh}
-                tintColor="#00FFFF"
-              />
-            }
-          >
-            <View style={styles.coachCard}>
-              <Text style={styles.coachCardTitle}>Right Now</Text>
-              <Text style={styles.coachCardBody}>This layer narrows the day without deleting the rest of your life. Keep the ledger in Commitments. Pick the next visible move here.</Text>
-
-              {!!focusRecommendation?.narrative?.trim() && (
-                <TouchableOpacity
-                  activeOpacity={0.85}
-                  style={styles.focusNarrativeCard}
-                  onPress={() => setIsFocusNudgeExpanded((prev) => !prev)}
-                >
-                  <Text style={styles.focusNarrativeLabel}>
-                    {focusRecommendation.phase ? `${focusRecommendation.phase} nudge` : 'Daily nudge'}
-                  </Text>
-                  <Text
-                    style={styles.focusNarrativeText}
-                    numberOfLines={isFocusNudgeExpanded ? undefined : 5}
-                  >
-                    {focusRecommendation.narrative.trim()}
-                  </Text>
-                  {focusRecommendation.narrative.trim().length > 220 && (
-                    <Text style={styles.focusNarrativeToggle}>
-                      {isFocusNudgeExpanded ? 'Show less' : 'Read full nudge'}
-                    </Text>
-                  )}
-                </TouchableOpacity>
-              )}
-
-              <View style={styles.focusCallout}>
-                <Text style={styles.focusCalloutLabel}>Primary Focus</Text>
-                <Text style={styles.focusCalloutTitle}>
-                  {primaryFocus ? fixName(primaryFocus.entry.title) : 'Nothing selected yet'}
-                </Text>
-                <Text style={styles.focusCalloutBody}>
-                  {primaryFocus
-                    ? 'This rises because it is meaningful and under-tended. Treat it as today’s best candidate, not a moral judgment.'
-                    : 'Open commitments exist, but no focus move has been chosen yet.'}
-                </Text>
-                {!!focusReason && (
-                  <Text style={styles.focusReasonText}>{focusReason}</Text>
-                )}
-                {!!suggestedStarterStep && (
-                  <Text style={styles.focusStarterText}>5-minute starter: {suggestedStarterStep}</Text>
-                )}
-              </View>
-
-              <View style={styles.focusMeaningCard}>
-                <Text style={styles.focusMeaningLabel}>Why This Matters</Text>
-                <Text style={styles.focusMeaningText}>{whyThisMatters}</Text>
-              </View>
-
-              <View style={styles.focusValuesCard}>
-                <Text style={styles.focusValuesLabel}>Values Mirror</Text>
-                <Text style={styles.focusValuesText}>{valuesMirrorText}</Text>
-                {topValues.length > 0 && (
-                  <View style={styles.focusValuesPills}>
-                    {topValues.map((value) => (
-                      <View key={value.key} style={styles.focusValuePill}>
-                        <Text style={styles.focusValuePillText}>
-                          {value.label}
-                          {value.gap >= 3 ? ' !' : ''}
-                        </Text>
-                      </View>
-                    ))}
-                  </View>
-                )}
-              </View>
-
-              {secondaryFocus.length > 0 && (
-                <View style={styles.focusSupportList}>
-                  <Text style={styles.progressionSectionLabel}>Still alive, but not first</Text>
-                  {secondaryFocus.map(({ entry }) => (
-                    <Text key={entry.id} style={styles.focusSupportItem}>• {fixName(entry.title)}</Text>
-                  ))}
-                </View>
-              )}
-            </View>
-          </ScrollView>
+          <View style={styles.focusPagerContainer}>
+            <ScrollView
+              ref={focusPagerRef}
+              horizontal
+              pagingEnabled
+              showsHorizontalScrollIndicator={false}
+              style={styles.focusPager}
+              contentContainerStyle={styles.focusPagerContent}
+              onMomentumScrollEnd={(event) => {
+                const nextIndex = Math.round(event.nativeEvent.contentOffset.x / focusPageWidth);
+                const boundedIndex = Math.max(0, Math.min(focusDates.length - 1, nextIndex));
+                setViewedFocusIndex(boundedIndex);
+                setIsFocusNudgeExpanded(false);
+              }}
+            >
+              {focusDates.map((date, index) => renderFocusPage(date, index))}
+            </ScrollView>
+          </View>
         ) : activeTab === 'commitments' ? (
           commitmentItems.length === 0 ? (
             <View style={styles.emptyCommitmentsState}>
@@ -2354,6 +2473,37 @@ const styles = StyleSheet.create({
     flexWrap: 'wrap',
     gap: 8,
     marginTop: 10,
+  },
+  focusPagerContainer: {
+    flex: 1,
+    marginHorizontal: -20,
+  },
+  focusPager: {
+    flex: 1,
+  },
+  focusPagerContent: {
+    alignItems: 'stretch',
+  },
+  focusPageContent: {
+    paddingHorizontal: 20,
+    paddingBottom: 24,
+  },
+  focusDateBadge: {
+    alignSelf: 'flex-start',
+    borderWidth: 1,
+    borderColor: 'rgba(0, 229, 255, 0.28)',
+    borderRadius: 999,
+    paddingHorizontal: 10,
+    paddingVertical: 5,
+    backgroundColor: 'rgba(0, 229, 255, 0.08)',
+    marginBottom: 12,
+  },
+  focusDateBadgeText: {
+    color: '#8EEBFF',
+    fontSize: 11,
+    fontWeight: '700',
+    letterSpacing: 0.8,
+    textTransform: 'uppercase',
   },
   focusValuePill: {
     borderWidth: 1,
