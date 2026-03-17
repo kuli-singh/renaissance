@@ -17,7 +17,6 @@ import {
   TouchableOpacity,
   TextInput,
   useWindowDimensions,
-  LayoutChangeEvent,
 } from 'react-native';
 import { transcribeAudio, processThought, generateDailyMirror, renaissanceConfig } from './lib/openai';
 import {
@@ -131,6 +130,8 @@ const getCurrentFocusPhase = (): 'morning' | 'midday' | 'evening' => {
   return 'evening';
 };
 
+const FOCUS_PHASE_ORDER: Array<'morning' | 'midday' | 'evening'> = ['morning', 'midday', 'evening'];
+
 const selectFocusRecommendationForPhase = (
   recommendations: FocusRecommendation[],
   phase: 'morning' | 'midday' | 'evening'
@@ -148,6 +149,17 @@ const selectFocusRecommendationForPhase = (
 
   return recommendations[0] || null;
 };
+
+const sortFocusRecommendationsByPhase = (
+  recommendations: FocusRecommendation[]
+): FocusRecommendation[] => (
+  [...recommendations].sort((a, b) => {
+    const aPhaseIndex = a.phase ? FOCUS_PHASE_ORDER.indexOf(a.phase) : Number.MAX_SAFE_INTEGER;
+    const bPhaseIndex = b.phase ? FOCUS_PHASE_ORDER.indexOf(b.phase) : Number.MAX_SAFE_INTEGER;
+    if (aPhaseIndex !== bPhaseIndex) return aPhaseIndex - bPhaseIndex;
+    return new Date(a.created_at || 0).getTime() - new Date(b.created_at || 0).getTime();
+  })
+);
 
 const hoursSince = (timestamp?: string | null): number => {
   if (!timestamp) return Number.POSITIVE_INFINITY;
@@ -176,8 +188,6 @@ const scoreFocusCandidate = (entry: AnimatedEntry, commitment: Commitment, weekl
 
 export default function App() {
   const { width: windowWidth } = useWindowDimensions();
-  const focusPagerSideInset = 20;
-  const [focusPagerViewportWidth, setFocusPagerViewportWidth] = useState(0);
   const [entries, setEntries] = useState<AnimatedEntry[]>([]);
   const [isRecording, setIsRecording] = useState(false);
   const [isProcessing, setIsProcessing] = useState(false);
@@ -213,7 +223,7 @@ export default function App() {
   const [dailyWhen, setDailyWhen] = useState('');
   const [dailyCheckinUpdatedAt, setDailyCheckinUpdatedAt] = useState<string | null>(null);
   const [focusRecommendation, setFocusRecommendation] = useState<FocusRecommendation | null>(null);
-  const [focusHistory, setFocusHistory] = useState<Record<string, FocusRecommendation | null>>({});
+  const [focusHistory, setFocusHistory] = useState<Record<string, FocusRecommendation[] | null>>({});
   const [viewedFocusIndex, setViewedFocusIndex] = useState(0);
   const [isFocusNudgeExpanded, setIsFocusNudgeExpanded] = useState(false);
   const pulseAnim = useRef(new Animated.Value(1)).current;
@@ -224,20 +234,7 @@ export default function App() {
   const recordPressLockRef = useRef(false);
   const focusPagerRef = useRef<ScrollView | null>(null);
   const focusDates = Array.from({ length: FOCUS_HISTORY_DAYS }, (_, index) => getDateStringDaysAgo(index));
-  const focusPageWidth = Math.max(focusPagerViewportWidth || windowWidth, 1);
-  const focusPagerViewportStyle = {
-    width: focusPageWidth,
-    marginLeft: -focusPagerSideInset,
-  } as const;
-
-  const handleFocusPagerLayout = useCallback((event: LayoutChangeEvent) => {
-    const nextWidth = Math.round(event.nativeEvent.layout.width);
-    if (nextWidth > 0) {
-      setFocusPagerViewportWidth((currentWidth) => (
-        currentWidth === nextWidth ? currentWidth : nextWidth
-      ));
-    }
-  }, []);
+  const focusPageWidth = Math.max(windowWidth, 1);
 
   const loadData = useCallback(async () => {
     try {
@@ -355,7 +352,7 @@ export default function App() {
       const selectedRecommendation = selectFocusRecommendationForPhase(backendRecommendations, currentPhase);
       if (selectedRecommendation) {
         setFocusRecommendation(selectedRecommendation);
-        setFocusHistory((prev) => ({ ...prev, [today]: selectedRecommendation }));
+        setFocusHistory((prev) => ({ ...prev, [today]: backendRecommendations }));
         await Promise.all([
           AsyncStorage.setItem(STORAGE_KEYS.FOCUS_RECOMMENDATION, JSON.stringify(selectedRecommendation)),
           AsyncStorage.setItem(STORAGE_KEYS.FOCUS_RECOMMENDATION_DATE, today),
@@ -364,7 +361,7 @@ export default function App() {
         try {
           const parsedRecommendation = JSON.parse(storedFocusRecommendation);
           setFocusRecommendation(parsedRecommendation);
-          setFocusHistory((prev) => ({ ...prev, [today]: parsedRecommendation }));
+          setFocusHistory((prev) => ({ ...prev, [today]: [parsedRecommendation] }));
         } catch {
           setFocusRecommendation(null);
         }
@@ -507,9 +504,8 @@ export default function App() {
 
     (async () => {
       const recommendations = await fetchFocusRecommendations(targetDate);
-      const selectedRecommendation = selectFocusRecommendationForPhase(recommendations, getCurrentFocusPhase());
       if (isCancelled) return;
-      setFocusHistory((prev) => ({ ...prev, [targetDate]: selectedRecommendation }));
+      setFocusHistory((prev) => ({ ...prev, [targetDate]: recommendations.length > 0 ? recommendations : null }));
     })();
 
     return () => {
@@ -855,22 +851,30 @@ export default function App() {
     : spiritAnimal;
   const renderFocusPage = (date: string, index: number) => {
     const isTodayPage = index === 0;
-    const pageRecommendation = isTodayPage
-      ? focusRecommendation
+    const pageRecommendations = isTodayPage
+      ? (focusHistory[date] || (focusRecommendation ? [focusRecommendation] : null))
       : (Object.prototype.hasOwnProperty.call(focusHistory, date) ? focusHistory[date] : undefined);
-    const isLoadingHistory = !isTodayPage && pageRecommendation === undefined;
+    const isLoadingHistory = !isTodayPage && pageRecommendations === undefined;
+    const sortedPageRecommendations = pageRecommendations ? sortFocusRecommendationsByPhase(pageRecommendations) : null;
+    const pageRecommendation = isTodayPage ? focusRecommendation : (sortedPageRecommendations?.[0] || null);
     const pageEntry = pageRecommendation?.recommended_focus_thought_id
       ? visibleEntries.find((entry) => entry.id === pageRecommendation.recommended_focus_thought_id) || null
       : null;
     const pageTitle = isTodayPage
       ? (primaryFocus ? fixName(primaryFocus.entry.title) : 'Nothing selected yet')
-      : (pageEntry ? fixName(pageEntry.title) : 'No archived focus saved');
+      : sortedPageRecommendations && sortedPageRecommendations.length > 1
+        ? `${sortedPageRecommendations.length} saved nudges`
+        : (pageEntry ? fixName(pageEntry.title) : 'No archived focus saved');
     const pageReason = isTodayPage
       ? focusReason
-      : (pageRecommendation?.recommended_focus_reason?.trim() || '');
+      : sortedPageRecommendations && sortedPageRecommendations.length > 1
+        ? ''
+        : (pageRecommendation?.recommended_focus_reason?.trim() || '');
     const pageStarterStep = isTodayPage
       ? suggestedStarterStep
-      : (pageRecommendation?.starter_step?.trim() || '');
+      : sortedPageRecommendations && sortedPageRecommendations.length > 1
+        ? ''
+        : (pageRecommendation?.starter_step?.trim() || '');
 
     return (
       <ScrollView
@@ -897,7 +901,7 @@ export default function App() {
             </View>
           )}
 
-          {!!pageRecommendation?.narrative?.trim() && (
+          {!!pageRecommendation?.narrative?.trim() && (isTodayPage || sortedPageRecommendations?.length === 1) && (
             <TouchableOpacity
               activeOpacity={0.85}
               style={styles.focusNarrativeCard}
@@ -931,8 +935,10 @@ export default function App() {
                   : 'Open commitments exist, but no focus move has been chosen yet.')
                 : isLoadingHistory
                   ? 'Loading archived focus...'
-                  : pageRecommendation
-                    ? 'This is the focus guidance that was saved for this day.'
+                  : sortedPageRecommendations && sortedPageRecommendations.length > 1
+                    ? 'This day has multiple saved focus nudges. Read them in sequence below.'
+                    : pageRecommendation
+                      ? 'This is the focus guidance that was saved for this day.'
                     : 'No focus recommendation was saved for this day.'}
             </Text>
             {!!pageReason && (
@@ -976,13 +982,45 @@ export default function App() {
                 </View>
               )}
             </>
-          ) : pageRecommendation ? (
-            <View style={styles.focusMeaningCard}>
-              <Text style={styles.focusMeaningLabel}>Archive Note</Text>
-              <Text style={styles.focusMeaningText}>
-                Swipe back to return to today. Leaving this tab will also reset Focus to today so the main flow always opens on the current day.
-              </Text>
-            </View>
+          ) : sortedPageRecommendations && sortedPageRecommendations.length > 0 ? (
+            <>
+              <View style={styles.focusArchiveStack}>
+                <Text style={styles.focusMeaningLabel}>Saved Nudges</Text>
+                {sortedPageRecommendations.map((recommendation) => {
+                  const archivedEntry = recommendation.recommended_focus_thought_id
+                    ? visibleEntries.find((entry) => entry.id === recommendation.recommended_focus_thought_id) || null
+                    : null;
+
+                  return (
+                    <View key={recommendation.id} style={styles.focusArchiveCard}>
+                      <Text style={styles.focusArchivePhaseLabel}>
+                        {recommendation.phase ? `${recommendation.phase} nudge` : 'Daily nudge'}
+                      </Text>
+                      <Text style={styles.focusArchiveTitle}>
+                        {archivedEntry ? fixName(archivedEntry.title) : 'No linked focus item'}
+                      </Text>
+                      {!!recommendation.narrative?.trim() && (
+                        <Text style={styles.focusArchiveNarrative}>{recommendation.narrative.trim()}</Text>
+                      )}
+                      {!!recommendation.recommended_focus_reason?.trim() && (
+                        <Text style={styles.focusArchiveMeta}>{recommendation.recommended_focus_reason.trim()}</Text>
+                      )}
+                      {!!recommendation.starter_step?.trim() && (
+                        <Text style={styles.focusArchiveMeta}>
+                          5-minute starter: {recommendation.starter_step.trim()}
+                        </Text>
+                      )}
+                    </View>
+                  );
+                })}
+              </View>
+              <View style={styles.focusMeaningCard}>
+                <Text style={styles.focusMeaningLabel}>Archive Note</Text>
+                <Text style={styles.focusMeaningText}>
+                  Swipe back to return to today. Leaving this tab will also reset Focus to today so the main flow always opens on the current day.
+                </Text>
+              </View>
+            </>
           ) : null}
         </View>
       </ScrollView>
@@ -1742,9 +1780,9 @@ export default function App() {
       )}
 
       {/* Entry List - Fills remaining space */}
-      <View style={styles.entryListContainer}>
+      <View style={[styles.entryListContainer, activeTab === 'focus' && styles.entryListContainerFocus]}>
         {activeTab !== 'capture' && (
-          <Text style={styles.entryListHeader}>
+          <Text style={[styles.entryListHeader, activeTab === 'focus' && styles.entryListHeaderFocus]}>
             {activeTab === 'commitments'
               ? `Commitments (${commitmentItems.length})`
               : 'Focus Progression'}
@@ -1852,8 +1890,7 @@ export default function App() {
           </ScrollView>
         ) : activeTab === 'focus' ? (
           <View
-            style={[styles.focusPagerContainer, focusPagerViewportStyle]}
-            onLayout={handleFocusPagerLayout}
+            style={styles.focusPagerContainer}
           >
             <ScrollView
               ref={focusPagerRef}
@@ -2198,12 +2235,18 @@ const styles = StyleSheet.create({
     paddingHorizontal: 20,
     marginTop: 8,
   },
+  entryListContainerFocus: {
+    paddingHorizontal: 0,
+  },
   entryListHeader: {
     color: CYAN_DIM,
     fontSize: 14,
     fontWeight: '600',
     marginBottom: 16,
     letterSpacing: 1,
+  },
+  entryListHeaderFocus: {
+    paddingHorizontal: 20,
   },
   progressionCard: {
     borderWidth: 1,
@@ -2495,6 +2538,7 @@ const styles = StyleSheet.create({
   },
   focusPagerContainer: {
     flex: 1,
+    width: '100%',
   },
   focusPager: {
     flex: 1,
@@ -2544,6 +2588,44 @@ const styles = StyleSheet.create({
     fontSize: 13,
     lineHeight: 20,
     marginBottom: 4,
+  },
+  focusArchiveStack: {
+    gap: 12,
+    marginTop: 12,
+  },
+  focusArchiveCard: {
+    borderWidth: 1,
+    borderColor: 'rgba(0, 229, 255, 0.12)',
+    borderRadius: 14,
+    padding: 14,
+    backgroundColor: '#0a0f10',
+  },
+  focusArchivePhaseLabel: {
+    color: '#88C9D1',
+    fontSize: 11,
+    fontWeight: '700',
+    letterSpacing: 1.2,
+    textTransform: 'uppercase',
+    marginBottom: 8,
+  },
+  focusArchiveTitle: {
+    color: '#FFFFFF',
+    fontSize: 15,
+    lineHeight: 21,
+    fontWeight: '600',
+    marginBottom: 8,
+  },
+  focusArchiveNarrative: {
+    color: '#DCE7EA',
+    fontSize: 14,
+    lineHeight: 21,
+    marginBottom: 8,
+  },
+  focusArchiveMeta: {
+    color: '#9AA7AA',
+    fontSize: 12,
+    lineHeight: 18,
+    marginTop: 4,
   },
   coachInputLabel: {
     color: '#B8B8B8',
