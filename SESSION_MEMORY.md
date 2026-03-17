@@ -130,6 +130,14 @@ Do not dump weekly-style essays into the app's daily nudge payload.
 - Android APK builds were run through EAS
 - Latest relevant build during this session:
   - `https://expo.dev/accounts/kuli_s/projects/renaissance/builds/6c0f9568-6386-43f7-8c61-a7f9c3692286`
+- March 17, 2026:
+  - pushed commit `8ec4c1d` (`Fix focus pager width and archive phases`) to `main`
+  - attempted a new Android APK build on EAS
+  - Expo rejected the build because the account's Android Free plan quota is exhausted until `April 1, 2026`
+  - no new APK artifact URL was produced
+  - latest successful APK currently visible in EAS build history:
+    - logs: `https://expo.dev/accounts/kuli_s/projects/renaissance/builds/ab113b25-918a-4214-ae78-1d4e65a00fab`
+    - apk: `https://expo.dev/artifacts/eas/n8cxq6FGkYoMTpyGMyNhBM.apk`
 
 ## Most Useful Next Steps
 
