@@ -1,6 +1,7 @@
 import { StatusBar } from 'expo-status-bar';
 import * as Haptics from 'expo-haptics';
 import { Audio } from 'expo-av';
+import * as Updates from 'expo-updates';
 import { useEffect, useRef, useState } from 'react';
 import {
   Animated,
@@ -22,6 +23,8 @@ import { deleteWorkout, fetchRecentWorkouts, insertWorkout, logClientError, Work
 
 type HerculesTab = 'capture' | 'logbook';
 type ExercisePickerMode = 'replace' | 'next';
+
+const BUILD_LABEL = 'hercules-b2';
 
 interface ExerciseSetDraft {
   id: string;
@@ -201,6 +204,7 @@ export default function App() {
   const [exercisePickerVisible, setExercisePickerVisible] = useState(false);
   const [exercisePickerMode, setExercisePickerMode] = useState<ExercisePickerMode>('replace');
   const [deletingWorkoutId, setDeletingWorkoutId] = useState<string | null>(null);
+  const [expandedNoteIds, setExpandedNoteIds] = useState<string[]>([]);
 
   useEffect(() => {
     const pulse = Animated.loop(
@@ -520,8 +524,18 @@ export default function App() {
     }
   };
 
+  const toggleExpandedNote = (id: string) => {
+    setExpandedNoteIds((current) => (
+      current.includes(id)
+        ? current.filter((itemId) => itemId !== id)
+        : [...current, id]
+    ));
+  };
+
   const groupedWorkouts = groupWorkoutsByDay(recentWorkouts);
   const exerciseGuidance = getExerciseGuidance(currentBlock?.exercise);
+  const updateIdShort = (Updates.updateId || 'embedded').slice(0, 8);
+  const channel = Updates.channel || 'unknown';
 
   return (
     <SafeAreaView style={styles.screen}>
@@ -540,6 +554,7 @@ export default function App() {
           <Text style={styles.header}>Hercules</Text>
           <Text style={styles.today}>{formatToday()}</Text>
           <Text style={styles.title}>Lift. Speak. Fill the block. Save the day.</Text>
+          <Text style={styles.versionBadge}>build:{BUILD_LABEL} · ch:{channel} · upd:{updateIdShort}</Text>
           <Text style={styles.subtitle}>
             Say one set at a time: “Lat pulldown, set 1, 12 reps, 30 kilos.”
           </Text>
@@ -726,26 +741,48 @@ export default function App() {
                         <Text style={[styles.tableHeaderText, styles.logMetricColumn]}>Reps</Text>
                         <Text style={[styles.tableHeaderText, styles.logMetricColumn]}>Weight</Text>
                         <Text style={[styles.tableHeaderText, styles.logTimeColumn]}>Time</Text>
-                        <Text style={[styles.tableHeaderText, styles.logActionColumn]}> </Text>
+                        <Text style={[styles.tableHeaderText, styles.logNotesHeader]}>Notes</Text>
                       </View>
 
                       {card.items.map((item) => (
-                        <View key={item.id} style={styles.logRow}>
-                          <Text style={[styles.logCell, styles.logSetColumn]}>{item.set ?? '-'}</Text>
-                          <Text style={[styles.logCell, styles.logMetricColumn]}>{item.reps ?? '-'}</Text>
-                          <Text style={[styles.logCell, styles.logMetricColumn]}>{item.weight ?? '-'}</Text>
-                          <View style={styles.logTimeColumn}>
-                            <Text style={styles.logTime}>{formatCreatedAt(item.created_at)}</Text>
+                        <View key={item.id} style={styles.logEntry}>
+                          <View style={styles.logRow}>
+                            <Text style={[styles.logCell, styles.logSetColumn]}>{item.set ?? '-'}</Text>
+                            <Text style={[styles.logCell, styles.logMetricColumn]}>{item.reps ?? '-'}</Text>
+                            <Text style={[styles.logCell, styles.logMetricColumn]}>{item.weight ?? '-'}</Text>
+                            <Text style={[styles.logTime, styles.logTimeColumn]}>{formatCreatedAt(item.created_at)}</Text>
                             {item.notes ? (
-                              <Text style={styles.logNote}>{item.notes}</Text>
-                            ) : null}
+                              <Pressable onPress={() => toggleExpandedNote(item.id)} style={styles.noteToggle}>
+                                <Text style={styles.noteToggleText}>
+                                  {expandedNoteIds.includes(item.id) ? 'Hide note' : 'Show note'}
+                                </Text>
+                              </Pressable>
+                            ) : (
+                              <View style={styles.noteTogglePlaceholder} />
+                            )}
                           </View>
-                          <View style={styles.logActionColumn}>
+                          {item.notes && expandedNoteIds.includes(item.id) ? (
+                            <View style={styles.notePanel}>
+                              <Text style={styles.logNote}>{item.notes}</Text>
+                              <Pressable
+                                onPress={() => handleDeleteWorkout(item)}
+                                disabled={deletingWorkoutId === item.id}
+                                style={[
+                                  styles.inlineDeleteButton,
+                                  deletingWorkoutId === item.id && styles.deleteLogButtonDisabled,
+                                ]}
+                              >
+                                <Text style={styles.deleteLogButtonText}>
+                                  {deletingWorkoutId === item.id ? 'Removing...' : 'Remove row'}
+                                </Text>
+                              </Pressable>
+                            </View>
+                          ) : (
                             <Pressable
                               onPress={() => handleDeleteWorkout(item)}
                               disabled={deletingWorkoutId === item.id}
                               style={[
-                                styles.deleteLogButton,
+                                styles.compactDeleteButton,
                                 deletingWorkoutId === item.id && styles.deleteLogButtonDisabled,
                               ]}
                             >
@@ -753,7 +790,7 @@ export default function App() {
                                 {deletingWorkoutId === item.id ? '...' : 'Remove'}
                               </Text>
                             </Pressable>
-                          </View>
+                          )}
                         </View>
                       ))}
                     </View>
@@ -840,6 +877,12 @@ const styles = StyleSheet.create({
     lineHeight: 30,
     textAlign: 'center',
     maxWidth: 360,
+  },
+  versionBadge: {
+    color: herculesTheme.colors.textDim,
+    fontSize: 11,
+    letterSpacing: 0.8,
+    textAlign: 'center',
   },
   subtitle: {
     color: herculesTheme.colors.textMuted,
@@ -1143,10 +1186,13 @@ const styles = StyleSheet.create({
   },
   logRow: {
     flexDirection: 'row',
-    alignItems: 'flex-start',
+    alignItems: 'center',
     borderBottomWidth: 1,
     borderBottomColor: 'rgba(159, 193, 182, 0.08)',
-    paddingVertical: 12,
+    paddingVertical: 10,
+    gap: herculesTheme.spacing.xs,
+  },
+  logEntry: {
     gap: herculesTheme.spacing.xs,
   },
   logSetColumn: {
@@ -1158,13 +1204,12 @@ const styles = StyleSheet.create({
     textAlign: 'center',
   },
   logTimeColumn: {
-    flex: 1,
-    minWidth: 0,
-    paddingHorizontal: herculesTheme.spacing.xs,
+    width: 66,
+    textAlign: 'right',
   },
-  logActionColumn: {
-    width: 84,
-    alignItems: 'flex-end',
+  logNotesHeader: {
+    flex: 1,
+    textAlign: 'right',
   },
   logCell: {
     color: herculesTheme.colors.text,
@@ -1176,15 +1221,45 @@ const styles = StyleSheet.create({
     color: herculesTheme.colors.textDim,
     fontSize: 12,
     fontWeight: '700',
-    textAlign: 'left',
+    textAlign: 'right',
+  },
+  noteToggle: {
+    marginLeft: 'auto',
+    backgroundColor: 'rgba(125, 255, 207, 0.08)',
+    borderRadius: herculesTheme.radius.pill,
+    borderWidth: 1,
+    borderColor: 'rgba(125, 255, 207, 0.14)',
+    paddingHorizontal: 10,
+    paddingVertical: 7,
+  },
+  noteTogglePlaceholder: {
+    width: 84,
+  },
+  noteToggleText: {
+    color: herculesTheme.colors.accent,
+    fontSize: 12,
+    fontWeight: '800',
+    textTransform: 'uppercase',
+  },
+  notePanel: {
+    backgroundColor: 'rgba(125, 255, 207, 0.06)',
+    borderRadius: herculesTheme.radius.sm,
+    borderWidth: 1,
+    borderColor: 'rgba(125, 255, 207, 0.10)',
+    padding: herculesTheme.spacing.sm,
+    gap: herculesTheme.spacing.sm,
   },
   logNote: {
     color: herculesTheme.colors.textMuted,
     fontSize: 12,
     lineHeight: 16,
-    marginTop: 4,
   },
-  deleteLogButton: {
+  compactDeleteButton: {
+    alignSelf: 'flex-end',
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+  },
+  inlineDeleteButton: {
     alignSelf: 'flex-end',
     backgroundColor: 'rgba(255, 123, 107, 0.12)',
     borderRadius: herculesTheme.radius.pill,
