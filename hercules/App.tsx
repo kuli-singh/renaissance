@@ -24,7 +24,7 @@ import { deleteWorkout, fetchRecentWorkouts, insertWorkout, logClientError, Work
 type HerculesTab = 'capture' | 'logbook';
 type ExercisePickerMode = 'replace' | 'next';
 
-const BUILD_LABEL = 'hercules-b2';
+const BUILD_LABEL = 'hercules-b3';
 
 interface ExerciseSetDraft {
   id: string;
@@ -126,6 +126,13 @@ const parseNumericInput = (value: string): number | null => {
   if (!trimmed) return null;
   const parsed = Number(trimmed);
   return Number.isFinite(parsed) ? parsed : null;
+};
+
+const formatWorkoutNote = (value: string | null | undefined) => {
+  const trimmed = (value || '').trim();
+  if (!trimmed) return '';
+  const withoutUnitTag = trimmed.replace(/\s*\[(kg|lb)\]\s*$/i, '').trim();
+  return /^\[(kg|lb)\]$/i.test(trimmed) ? '' : withoutUnitTag;
 };
 
 const nextRowIndex = (rows: ExerciseSetDraft[]) => {
@@ -460,17 +467,12 @@ export default function App() {
     setIsProcessing(true);
     try {
       for (const row of rowsToSave) {
-        const notes = [
-          row.notes.trim(),
-          currentBlock.weightUnit ? `[${currentBlock.weightUnit}]` : '',
-        ].filter(Boolean).join(' ');
-
         await insertWorkout({
           exercise: currentBlock.exercise,
           set: row.setNumber,
           reps: parseNumericInput(row.reps),
           weight: parseNumericInput(row.weight),
-          notes,
+          notes: row.notes.trim(),
         });
       }
 
@@ -741,7 +743,7 @@ export default function App() {
                         <Text style={[styles.tableHeaderText, styles.logMetricColumn]}>Reps</Text>
                         <Text style={[styles.tableHeaderText, styles.logMetricColumn]}>Weight</Text>
                         <Text style={[styles.tableHeaderText, styles.logTimeColumn]}>Time</Text>
-                        <Text style={[styles.tableHeaderText, styles.logNotesHeader]}>Notes</Text>
+                        <Text style={[styles.tableHeaderText, styles.logNotesColumn]}>Note</Text>
                       </View>
 
                       {card.items.map((item) => (
@@ -751,19 +753,19 @@ export default function App() {
                             <Text style={[styles.logCell, styles.logMetricColumn]}>{item.reps ?? '-'}</Text>
                             <Text style={[styles.logCell, styles.logMetricColumn]}>{item.weight ?? '-'}</Text>
                             <Text style={[styles.logTime, styles.logTimeColumn]}>{formatCreatedAt(item.created_at)}</Text>
-                            {item.notes ? (
+                            {formatWorkoutNote(item.notes) ? (
                               <Pressable onPress={() => toggleExpandedNote(item.id)} style={styles.noteToggle}>
                                 <Text style={styles.noteToggleText}>
-                                  {expandedNoteIds.includes(item.id) ? 'Hide note' : 'Show note'}
+                                  {expandedNoteIds.includes(item.id) ? 'Hide' : 'Show'}
                                 </Text>
                               </Pressable>
                             ) : (
                               <View style={styles.noteTogglePlaceholder} />
                             )}
                           </View>
-                          {item.notes && expandedNoteIds.includes(item.id) ? (
+                          {formatWorkoutNote(item.notes) && expandedNoteIds.includes(item.id) ? (
                             <View style={styles.notePanel}>
-                              <Text style={styles.logNote}>{item.notes}</Text>
+                              <Text style={styles.logNote}>{formatWorkoutNote(item.notes)}</Text>
                               <Pressable
                                 onPress={() => handleDeleteWorkout(item)}
                                 disabled={deletingWorkoutId === item.id}
@@ -1207,9 +1209,9 @@ const styles = StyleSheet.create({
     width: 66,
     textAlign: 'right',
   },
-  logNotesHeader: {
-    flex: 1,
-    textAlign: 'right',
+  logNotesColumn: {
+    width: 54,
+    textAlign: 'center',
   },
   logCell: {
     color: herculesTheme.colors.text,
@@ -1224,22 +1226,24 @@ const styles = StyleSheet.create({
     textAlign: 'right',
   },
   noteToggle: {
-    marginLeft: 'auto',
+    width: 54,
+    alignItems: 'center',
     backgroundColor: 'rgba(125, 255, 207, 0.08)',
     borderRadius: herculesTheme.radius.pill,
     borderWidth: 1,
     borderColor: 'rgba(125, 255, 207, 0.14)',
-    paddingHorizontal: 10,
-    paddingVertical: 7,
+    paddingHorizontal: 6,
+    paddingVertical: 5,
   },
   noteTogglePlaceholder: {
-    width: 84,
+    width: 54,
   },
   noteToggleText: {
     color: herculesTheme.colors.accent,
-    fontSize: 12,
+    fontSize: 10,
     fontWeight: '800',
     textTransform: 'uppercase',
+    textAlign: 'center',
   },
   notePanel: {
     backgroundColor: 'rgba(125, 255, 207, 0.06)',
