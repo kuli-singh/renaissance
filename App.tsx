@@ -8,6 +8,7 @@ import {
   StyleSheet,
   Text,
   View,
+  Platform,
   Pressable,
   Animated,
   FlatList,
@@ -32,7 +33,10 @@ import {
   updateCommitmentStatus,
   logCommitmentProgress,
   deleteEntry,
+  logClientError,
+  syncCompassToSupabase,
 } from './lib/supabase';
+import { getPublicEnvError } from './lib/env';
 import { deriveStarterStep, deriveValueInsights, TYPE_VALUE_LENS } from './lib/values';
 
 // Fix voice-to-text name errors in display
@@ -116,6 +120,13 @@ const getDateStringDaysAgo = (daysAgo: number) => {
   const date = new Date();
   date.setDate(date.getDate() - daysAgo);
   return date.toISOString().split('T')[0];
+};
+
+const buildTranscriptPreview = (text?: string | null) => {
+  if (!text) return null;
+  const normalized = text.replace(/\s+/g, ' ').trim();
+  if (!normalized) return null;
+  return normalized.slice(0, 240);
 };
 
 const shouldGenerateMirror = (lastGeneratedDate: string | null): boolean => {
@@ -226,6 +237,7 @@ export default function App() {
   const [focusHistory, setFocusHistory] = useState<Record<string, FocusRecommendation[] | null>>({});
   const [viewedFocusIndex, setViewedFocusIndex] = useState(0);
   const [isFocusNudgeExpanded, setIsFocusNudgeExpanded] = useState(false);
+  const configError = getPublicEnvError();
   const pulseAnim = useRef(new Animated.Value(1)).current;
   const recordingAnim = useRef(new Animated.Value(1)).current;
   const processingAnim = useRef(new Animated.Value(1)).current;
@@ -341,6 +353,9 @@ export default function App() {
       setWeeklyFocus(storedWeeklyFocus || '');
       setDailyAlignment((storedDailyAlignment as 'yes' | 'partial' | 'no' | null) || null);
       setCompassUpdatedAt(storedCompassUpdatedAt || null);
+      if (storedNorthStar || storedWeeklyFocus) {
+        syncCompassToSupabase(storedNorthStar || '', storedWeeklyFocus || '').catch(() => {});
+      }
       setDailyMove(storedDailyMove || '');
       setDailyBlocker(storedDailyBlocker || '');
       setDailyWhen(storedDailyWhen || '');
@@ -630,6 +645,11 @@ export default function App() {
       return;
     }
 
+    if (configError) {
+      setStatusText('Build config missing. See warning above.');
+      return;
+    }
+
     const openCommitments = Object.values(commitmentMap).filter(c => c.status === 'open').length;
 
     if (ENABLE_COMMITMENT_GATE && openCommitments > 3) {
@@ -650,6 +670,12 @@ export default function App() {
     setIsProcessing(true);
     setStatusText('Transcribing...');
 
+    let captureStage = 'stop_recording';
+    let transcriptionPreview: string | null = null;
+    let transcriptionLength = 0;
+    let processedThoughtCount = 0;
+    let savedThoughtCount = 0;
+
     try {
       const audioUri = await stopRecording();
 
@@ -658,14 +684,19 @@ export default function App() {
       }
 
       // Step 1: Transcribe audio (forced English)
+      captureStage = 'transcribe_audio';
       const transcription = await transcribeAudio(audioUri);
       console.log('[Whisper] Transcribed:', transcription.substring(0, 100) + '...');
+      transcriptionPreview = buildTranscriptPreview(transcription);
+      transcriptionLength = transcription.length;
 
       setStatusText('Strategizing...');
 
       // Step 2: Process with Strategist + Generate Embedding (parallel)
+      captureStage = 'process_thought';
       const processedThoughts = await processThought(transcription);
       console.log('[Strategist] Processed', processedThoughts.length, 'thoughts');
+      processedThoughtCount = processedThoughts.length;
 
       if (processedThoughts.length === 0) {
         setStatusText('No thoughts extracted. Try again.');
@@ -681,6 +712,7 @@ export default function App() {
 
       // Step 3: Save each thought with embedding to Supabase
       for (const thought of processedThoughts) {
+        captureStage = 'save_thought';
         const savedEntry = await insertThought({
           title: thought.title,
           category: thought.category,
@@ -691,6 +723,7 @@ export default function App() {
         });
 
         if (savedEntry) {
+          savedThoughtCount += 1;
           const animatedEntry: AnimatedEntry = {
             ...savedEntry,
             glowAnim: new Animated.Value(0),
@@ -707,7 +740,12 @@ export default function App() {
         }
       }
 
+      if (processedThoughts.length > 0 && newAnimatedEntries.length === 0) {
+        throw new Error('All thought inserts failed');
+      }
+
       if (newAnimatedEntries.length > 0) {
+        captureStage = 'refresh_spirit_animal';
         setEntries((prev) => [...newAnimatedEntries, ...prev]);
         animateNewItems(newAnimatedEntries);
 
@@ -727,6 +765,28 @@ export default function App() {
       }
     } catch (error) {
       console.error('Processing error:', error);
+      const errorMessage = error instanceof Error ? error.message : String(error);
+      const errorName = error instanceof Error ? error.name : 'UnknownError';
+      const errorStack = error instanceof Error ? error.stack || null : null;
+
+      await logClientError({
+        feature: 'thought_capture',
+        stage: captureStage,
+        message: errorMessage,
+        errorName,
+        errorStack,
+        context: {
+          platform: Platform.OS,
+          buildLabel: BUILD_LABEL,
+          channel,
+          updateId: Updates.updateId || 'embedded',
+          transcriptionPreview,
+          transcriptionLength,
+          processedThoughtCount,
+          savedThoughtCount,
+          statusText,
+        },
+      });
       setStatusText('Error. Try again.');
       setTimeout(() => setStatusText('Hold to record'), 2000);
     }
@@ -1614,6 +1674,13 @@ export default function App() {
       <Text style={styles.header}>Renaissance</Text>
       <Text style={styles.versionBadge}>build:{BUILD_LABEL} · ch:{channel} · upd:{updateIdShort}</Text>
 
+      {configError ? (
+        <View style={styles.configAlert}>
+          <Text style={styles.configAlertTitle}>Build Configuration Error</Text>
+          <Text style={styles.configAlertBody}>{configError}</Text>
+        </View>
+      ) : null}
+
       <View style={styles.modeTabs}>
         <TouchableOpacity
           style={[styles.modeTab, activeTab === 'capture' && styles.modeTabActive]}
@@ -1967,6 +2034,29 @@ const styles = StyleSheet.create({
     fontSize: 11,
     letterSpacing: 0.8,
     marginBottom: 10,
+  },
+  configAlert: {
+    width: '90%',
+    backgroundColor: 'rgba(255, 156, 102, 0.12)',
+    borderWidth: 1,
+    borderColor: 'rgba(255, 156, 102, 0.30)',
+    borderRadius: 16,
+    paddingHorizontal: 14,
+    paddingVertical: 12,
+    marginBottom: 12,
+  },
+  configAlertTitle: {
+    color: '#ffb08b',
+    fontSize: 12,
+    fontWeight: '800',
+    letterSpacing: 0.8,
+    textTransform: 'uppercase',
+    marginBottom: 6,
+  },
+  configAlertBody: {
+    color: '#ffd7c2',
+    fontSize: 13,
+    lineHeight: 19,
   },
   modeTabs: {
     flexDirection: 'row',

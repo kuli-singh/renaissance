@@ -1,21 +1,25 @@
 import { createClient } from '@supabase/supabase-js';
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import { env, getPublicEnvError } from './env';
 
-const SUPABASE_URL = process.env.EXPO_PUBLIC_SUPABASE_URL!;
-const SUPABASE_ANON_KEY = process.env.EXPO_PUBLIC_SUPABASE_ANON_KEY!;
+let supabase: ReturnType<typeof createClient<any>> | null = null;
 
-if (!SUPABASE_URL || !SUPABASE_ANON_KEY) {
-  console.warn('Supabase credentials not found in .env');
-}
+const getSupabase = () => {
+  if (supabase) {
+    return supabase;
+  }
 
-export const supabase = createClient(SUPABASE_URL, SUPABASE_ANON_KEY, {
-  auth: {
-    storage: AsyncStorage,
-    autoRefreshToken: true,
-    persistSession: true,
-    detectSessionInUrl: false,
-  },
-});
+  supabase = createClient(env.supabaseUrl, env.supabaseAnonKey, {
+    auth: {
+      storage: AsyncStorage,
+      autoRefreshToken: true,
+      persistSession: true,
+      detectSessionInUrl: false,
+    },
+  });
+
+  return supabase;
+};
 
 export interface Commitment {
   id: string;
@@ -42,6 +46,15 @@ export interface FocusRecommendation {
   created_at?: string;
 }
 
+export interface ClientErrorLogInput {
+  feature: string;
+  stage: string;
+  message: string;
+  errorName?: string | null;
+  errorStack?: string | null;
+  context?: Record<string, unknown>;
+}
+
 export interface Entry {
   id: string;
   title: string;
@@ -57,6 +70,35 @@ export interface Entry {
   body?: string;
   text?: string;
   created_at: string;
+}
+
+const truncate = (value: string, max = 5000) => (
+  value.length > max ? `${value.slice(0, max)}...` : value
+);
+
+export async function logClientError(input: ClientErrorLogInput): Promise<void> {
+  const configError = getPublicEnvError();
+  if (configError) {
+    console.warn('[Supabase] Skipping client error log:', configError);
+    return;
+  }
+
+  const payload = {
+    feature: input.feature,
+    stage: input.stage,
+    message: truncate(input.message, 2000),
+    error_name: input.errorName || null,
+    error_stack: input.errorStack ? truncate(input.errorStack, 8000) : null,
+    context: input.context || {},
+  };
+
+  const { error } = await getSupabase()
+    .from('client_error_logs')
+    .insert([payload]);
+
+  if (error) {
+    console.warn('[Supabase] Failed to persist client error log:', error.message);
+  }
 }
 
 // Insert thought with vectorized embedding
@@ -85,7 +127,7 @@ export async function insertThought(thought: {
 
   console.log('[Supabase] Saving:', thought.title, '| Category:', thought.category);
 
-  const { data, error } = await supabase
+  const { data, error } = await getSupabase()
     .from('entries')
     .insert([payload])
     .select();
@@ -93,6 +135,22 @@ export async function insertThought(thought: {
   if (error) {
     console.error('[Supabase] Error:', error.message);
     if (error.hint) console.error('[Supabase] Hint:', error.hint);
+    await logClientError({
+      feature: 'thought_capture',
+      stage: 'supabase_insert_primary',
+      message: error.message,
+      errorName: error.code || 'SupabaseInsertError',
+      context: {
+        title: thought.title,
+        category: thought.category,
+        energy: thought.energy,
+        hasEmbedding: Array.isArray(thought.embedding),
+        embeddingLength: Array.isArray(thought.embedding) ? thought.embedding.length : 0,
+        contentLength: thought.content?.length || 0,
+        hint: error.hint || null,
+        details: error.details || null,
+      },
+    });
 
     // Fallback without embedding/insight columns
     const fallbackPayload = {
@@ -102,13 +160,27 @@ export async function insertThought(thought: {
       content: thought.content,
     };
 
-    const fallbackResult = await supabase
+    const fallbackResult = await getSupabase()
       .from('entries')
       .insert([fallbackPayload])
       .select();
 
     if (fallbackResult.error) {
       console.error('[Supabase] Fallback failed:', fallbackResult.error.message);
+      await logClientError({
+        feature: 'thought_capture',
+        stage: 'supabase_insert_fallback',
+        message: fallbackResult.error.message,
+        errorName: fallbackResult.error.code || 'SupabaseFallbackInsertError',
+        context: {
+          title: thought.title,
+          category: thought.category,
+          energy: thought.energy,
+          contentLength: thought.content?.length || 0,
+          hint: fallbackResult.error.hint || null,
+          details: fallbackResult.error.details || null,
+        },
+      });
       return null;
     }
 
@@ -137,7 +209,7 @@ export async function insertEntry(entry: {
   console.log('=== INSERTING TO SUPABASE ===');
   console.log('Insert data:', JSON.stringify(insertData, null, 2));
 
-  const { data, error } = await supabase
+  const { data, error } = await getSupabase()
     .from('entries')
     .insert(insertData)
     .select('*')
@@ -158,7 +230,7 @@ export async function insertEntry(entry: {
 }
 
 export async function deleteEntry(id: string): Promise<boolean> {
-  const { error } = await supabase
+  const { error } = await getSupabase()
     .from('entries')
     .delete()
     .eq('id', id);
@@ -171,7 +243,7 @@ export async function deleteEntry(id: string): Promise<boolean> {
 }
 
 export async function fetchEntries(): Promise<Entry[]> {
-  const { data, error } = await supabase
+  const { data, error } = await getSupabase()
     .from('entries')
     .select('*')
     .order('created_at', { ascending: false });
@@ -191,7 +263,7 @@ export async function fetchEntries(): Promise<Entry[]> {
 export async function fetchTodaysVents(): Promise<Entry[]> {
   const today = new Date().toISOString().split('T')[0];
 
-  const { data, error } = await supabase
+  const { data, error } = await getSupabase()
     .from('entries')
     .select('*')
     .eq('type', 'vent')
@@ -213,7 +285,7 @@ export async function fetchYesterdaysVents(): Promise<Entry[]> {
   yesterday.setDate(yesterday.getDate() - 1);
   const yesterdayStr = yesterday.toISOString().split('T')[0];
 
-  const { data, error } = await supabase
+  const { data, error } = await getSupabase()
     .from('entries')
     .select('*')
     .eq('type', 'vent')
@@ -232,7 +304,7 @@ export async function fetchYesterdaysVents(): Promise<Entry[]> {
 // ── Commitments ──────────────────────────────────────────────────────────────
 
 export async function fetchCommitments(): Promise<Commitment[]> {
-  const { data, error } = await supabase
+  const { data, error } = await getSupabase()
     .from('commitments')
     .select('*')
     .order('created_at', { ascending: true });
@@ -248,7 +320,7 @@ export async function createCommitment(
   thoughtId: string,
   reasoning?: string
 ): Promise<Commitment | null> {
-  const { data, error } = await supabase
+  const { data, error } = await getSupabase()
     .from('commitments')
     .insert([{ thought_id: thoughtId, status: 'open', reasoning: reasoning || null }])
     .select()
@@ -265,7 +337,7 @@ export async function updateCommitmentStatus(
   id: string,
   status: 'open' | 'completed' | 'abandoned'
 ): Promise<boolean> {
-  const { error } = await supabase
+  const { error } = await getSupabase()
     .from('commitments')
     .update({ status })
     .eq('id', id);
@@ -281,7 +353,7 @@ export async function logCommitmentProgress(
   id: string,
   note?: string
 ): Promise<Commitment | null> {
-  const { data: existing, error: fetchError } = await supabase
+  const { data: existing, error: fetchError } = await getSupabase()
     .from('commitments')
     .select('id,progress_count_7d,progress_count_30d')
     .eq('id', id)
@@ -299,7 +371,7 @@ export async function logCommitmentProgress(
     latest_progress_note: note || null,
   };
 
-  const { data, error } = await supabase
+  const { data, error } = await getSupabase()
     .from('commitments')
     .update(payload)
     .eq('id', id)
@@ -317,7 +389,7 @@ export async function logCommitmentProgress(
 export async function fetchLatestFocusRecommendation(
   focusDate: string
 ): Promise<FocusRecommendation | null> {
-  const { data, error } = await supabase
+  const { data, error } = await getSupabase()
     .from('focus_recommendations')
     .select('*')
     .eq('focus_date', focusDate)
@@ -336,7 +408,7 @@ export async function fetchLatestFocusRecommendation(
 export async function fetchFocusRecommendations(
   focusDate: string
 ): Promise<FocusRecommendation[]> {
-  const { data, error } = await supabase
+  const { data, error } = await getSupabase()
     .from('focus_recommendations')
     .select('*')
     .eq('focus_date', focusDate)
@@ -350,6 +422,26 @@ export async function fetchFocusRecommendations(
   return data || [];
 }
 
+// ── User Settings ─────────────────────────────────────────────────────────────
+
+export async function syncCompassToSupabase(northStar: string, weeklyFocus: string): Promise<void> {
+  const settings = [
+    { key: 'north_star', value: northStar.trim() },
+    { key: 'weekly_focus', value: weeklyFocus.trim() },
+    { key: 'compass_synced_at', value: new Date().toISOString() },
+  ];
+
+  const { error } = await getSupabase()
+    .from('user_settings')
+    .upsert(settings, { onConflict: 'key' });
+
+  if (error) {
+    console.warn('[Supabase] Compass sync failed:', error.message);
+  } else {
+    console.log('[Supabase] Compass synced to Supabase');
+  }
+}
+
 // ── Spirit Animal ─────────────────────────────────────────────────────────────
 
 export async function getTodaysSpiritAnimal(): Promise<string> {
@@ -358,7 +450,7 @@ export async function getTodaysSpiritAnimal(): Promise<string> {
   yesterday.setDate(yesterday.getDate() - 1);
   const targetDate = yesterday.toISOString().split('T')[0];
 
-  const { data, error } = await supabase
+  const { data, error } = await getSupabase()
     .from('entries')
     .select('type, energy')
     .gte('created_at', `${targetDate}T00:00:00`)
