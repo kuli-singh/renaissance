@@ -31,6 +31,12 @@ jobs:
 
       - name: Publish preview update
         run: eas update --auto --branch preview
+        env:
+          EXPO_PUBLIC_SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          EXPO_PUBLIC_SUPABASE_ANON_KEY: eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InB1dHh2c3ljb2xveHRzdmJxZ2hwIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzA5OTA4ODgsImV4cCI6MjA4NjU2Njg4OH0.nPnlWoVzrxhD6_gkfHnpgLvf5wTwpIhK3fSn6pJqhyc
 
       - name: Publish production update
         run: eas update --auto --branch production
+        env:
+          EXPO_PUBLIC_SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          EXPO_PUBLIC_SUPABASE_ANON_KEY: eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InB1dHh2c3ljb2xveHRzdmJxZ2hwIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzA5OTA4ODgsImV4cCI6MjA4NjU2Njg4OH0.nPnlWoVzrxhD6_gkfHnpgLvf5wTwpIhK3fSn6pJqhyc
