@@ -109,6 +109,17 @@ const ENABLE_COMMITMENT_GATE = false;
 const ENABLE_BOTTLENECK_BANNER = false;
 const BUILD_LABEL = 'focus-b1';
 const FOCUS_HISTORY_DAYS = 7;
+const SPIRIT_ANIMAL_ICONS: Record<string, string> = {
+  steady_turtle: '🐢',
+  overextended_octopus: '🐙',
+  buried_mole: '🦫',
+  tracking_wolf: '🐺',
+  glass_fox: '🦊',
+  forge_horse: '🐎',
+  tidal_heron: '🪶',
+  hearth_bear: '🐻',
+  signal_crow: '🐦',
+};
 
 // Format date for display (e.g., "February 13")
 const formatDateForDisplay = (dateStr: string) => {
@@ -907,11 +918,21 @@ export default function App() {
       : openCommitmentItems.length > 5
         ? `${spiritAnimal} is warning about cognitive overload. Too many open loops are competing with each other. Keep the full map, but let only one thing lead today.`
         : `${spiritAnimal} reflects the story you are living, not just your mood. Let today’s focus prove one value in action, not just in language.`;
+  const backendSpiritAnimalTitle = focusRecommendation?.spirit_animal_title?.trim() || '';
+  const backendSpiritAnimalKey = focusRecommendation?.spirit_animal_key?.trim() || '';
+  const backendSpiritAnimalReason = focusRecommendation?.spirit_animal_reason?.trim() || '';
+  const backendSpiritAnimalPrescription = focusRecommendation?.spirit_animal_prescription?.trim() || '';
+  const hasBackendSpiritAnimal = !!backendSpiritAnimalTitle;
   const firstSpiritAnimalSpace = spiritAnimal.indexOf(' ');
-  const spiritAnimalIcon = firstSpiritAnimalSpace > 0 ? spiritAnimal.slice(0, firstSpiritAnimalSpace) : '🦋';
-  const spiritAnimalTitle = firstSpiritAnimalSpace > 0
+  const localSpiritAnimalIcon = firstSpiritAnimalSpace > 0 ? spiritAnimal.slice(0, firstSpiritAnimalSpace) : '🦋';
+  const localSpiritAnimalTitle = firstSpiritAnimalSpace > 0
     ? spiritAnimal.slice(firstSpiritAnimalSpace + 1)
     : spiritAnimal;
+  const spiritAnimalIcon = hasBackendSpiritAnimal
+    ? (SPIRIT_ANIMAL_ICONS[backendSpiritAnimalKey] || '🦋')
+    : localSpiritAnimalIcon;
+  const spiritAnimalTitle = hasBackendSpiritAnimal ? backendSpiritAnimalTitle : localSpiritAnimalTitle;
+  const displayedSpiritAnimalReading = hasBackendSpiritAnimal ? backendSpiritAnimalReason : spiritAnimalReading;
   const renderFocusPage = (date: string, index: number) => {
     const isTodayPage = index === 0;
     const pageRecommendations = isTodayPage
@@ -1744,7 +1765,13 @@ export default function App() {
         </TouchableOpacity>
         {!isSpiritAnimalCollapsed && (
           <View style={styles.spiritAnimalBody}>
-            <Text style={styles.spiritAnimalReading}>{spiritAnimalReading}</Text>
+            <Text style={styles.spiritAnimalReading}>{displayedSpiritAnimalReading}</Text>
+            {!!backendSpiritAnimalPrescription && (
+              <View style={styles.spiritAnimalPrescriptionCard}>
+                <Text style={styles.spiritAnimalPrescriptionLabel}>Prescription</Text>
+                <Text style={styles.spiritAnimalPrescriptionText}>{backendSpiritAnimalPrescription}</Text>
+              </View>
+            )}
           </View>
         )}
       </View>
@@ -2182,6 +2209,30 @@ const styles = StyleSheet.create({
   },
   spiritAnimalBody: {
     marginTop: 12,
+  },
+  spiritAnimalPrescriptionCard: {
+    marginTop: 12,
+    padding: 12,
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.08)',
+    backgroundColor: 'rgba(255,255,255,0.03)',
+  },
+  spiritAnimalPrescriptionLabel: {
+    color: '#88C9D1',
+    fontSize: 10,
+    fontWeight: '700',
+    letterSpacing: 1,
+    textTransform: 'uppercase',
+    marginBottom: 6,
+    textAlign: 'center',
+  },
+  spiritAnimalPrescriptionText: {
+    color: '#FFFFFF',
+    fontSize: 12,
+    lineHeight: 18,
+    textAlign: 'center',
+    fontWeight: '600',
   },
   spiritAnimalChevron: {
     color: '#88C9D1',

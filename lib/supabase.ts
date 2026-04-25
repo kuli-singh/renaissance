@@ -42,6 +42,11 @@ export interface FocusRecommendation {
   recommended_focus_reason?: string | null;
   starter_step?: string | null;
   narrative?: string | null;
+  spirit_animal_key?: string | null;
+  spirit_animal_title?: string | null;
+  spirit_animal_reason?: string | null;
+  spirit_animal_prescription?: string | null;
+  confidence?: number | null;
   phase?: 'morning' | 'midday' | 'evening' | null;
   created_at?: string;
 }
