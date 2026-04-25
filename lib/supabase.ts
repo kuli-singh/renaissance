@@ -76,6 +76,10 @@ const truncate = (value: string, max = 5000) => (
   value.length > max ? `${value.slice(0, max)}...` : value
 );
 
+const normalizeLegacyEnergyConstraint = (energy: string) => (
+  energy === 'zombie' ? 'low' : energy
+);
+
 export async function logClientError(input: ClientErrorLogInput): Promise<void> {
   const configError = getPublicEnvError();
   if (configError) {
@@ -152,11 +156,46 @@ export async function insertThought(thought: {
       },
     });
 
+    const normalizedEnergy = normalizeLegacyEnergyConstraint(thought.energy);
+
+    if (normalizedEnergy !== thought.energy) {
+      const legacyConstraintPayload = {
+        ...payload,
+        energy: normalizedEnergy,
+      };
+
+      const legacyConstraintResult = await getSupabase()
+        .from('entries')
+        .insert([legacyConstraintPayload])
+        .select();
+
+      if (!legacyConstraintResult.error) {
+        console.warn('[Supabase] Saved with legacy energy fallback:', normalizedEnergy);
+        return legacyConstraintResult.data?.[0] || null;
+      }
+
+      console.error('[Supabase] Legacy energy fallback failed:', legacyConstraintResult.error.message);
+      await logClientError({
+        feature: 'thought_capture',
+        stage: 'supabase_insert_legacy_energy_fallback',
+        message: legacyConstraintResult.error.message,
+        errorName: legacyConstraintResult.error.code || 'SupabaseLegacyEnergyFallbackError',
+        context: {
+          originalEnergy: thought.energy,
+          fallbackEnergy: normalizedEnergy,
+          title: thought.title,
+          category: thought.category,
+          hint: legacyConstraintResult.error.hint || null,
+          details: legacyConstraintResult.error.details || null,
+        },
+      });
+    }
+
     // Fallback without embedding/insight columns
     const fallbackPayload = {
       title: thought.title,
       type: thought.category,
-      energy: thought.energy,
+      energy: normalizedEnergy,
       content: thought.content,
     };
 

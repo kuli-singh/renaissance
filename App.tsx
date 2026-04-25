@@ -219,8 +219,11 @@ export default function App() {
   // commitmentMap: keyed by thought_id for O(1) lookups in render
   const [commitmentMap, setCommitmentMap] = useState<Record<string, Commitment>>({});
   const [gateVisible, setGateVisible] = useState(false);
-  const updateIdShort = (Updates.updateId || 'embedded').slice(0, 8);
+  const [showBuildFingerprintDetails, setShowBuildFingerprintDetails] = useState(false);
+  const updateId = Updates.updateId || 'embedded';
+  const updateIdShort = updateId.slice(0, 8);
   const channel = Updates.channel || 'unknown-channel';
+  const updateSource = Updates.isEmbeddedLaunch ? 'embedded' : 'ota';
   const [gateCountdown, setGateCountdown] = useState(3);
   const [gateOpenCount, setGateOpenCount] = useState(0);
   const [pendingCommitmentReview, setPendingCommitmentReview] = useState<PendingCommitmentReviewItem[]>([]);
@@ -1672,7 +1675,20 @@ export default function App() {
 
       {/* Header */}
       <Text style={styles.header}>Renaissance</Text>
-      <Text style={styles.versionBadge}>build:{BUILD_LABEL} · ch:{channel} · upd:{updateIdShort}</Text>
+      <TouchableOpacity
+        activeOpacity={0.8}
+        style={styles.buildFingerprintCard}
+        onPress={() => setShowBuildFingerprintDetails((prev) => !prev)}
+      >
+        <Text style={styles.buildFingerprintSummary}>
+          build:{BUILD_LABEL} · ch:{channel} · src:{updateSource} · upd:{updateIdShort}
+        </Text>
+        {showBuildFingerprintDetails ? (
+          <Text style={styles.buildFingerprintMeta}>full update id: {updateId}</Text>
+        ) : (
+          <Text style={styles.buildFingerprintHint}>Tap for details</Text>
+        )}
+      </TouchableOpacity>
 
       {configError ? (
         <View style={styles.configAlert}>
@@ -2029,11 +2045,33 @@ const styles = StyleSheet.create({
     letterSpacing: 4,
     marginBottom: 4,
   },
-  versionBadge: {
-    color: '#666666',
+  buildFingerprintCard: {
+    width: '90%',
+    marginBottom: 12,
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    borderRadius: 16,
+    borderWidth: 1,
+    borderColor: 'rgba(0, 229, 255, 0.28)',
+    backgroundColor: 'rgba(0, 229, 255, 0.08)',
+  },
+  buildFingerprintSummary: {
+    color: '#D8FDFF',
     fontSize: 11,
-    letterSpacing: 0.8,
-    marginBottom: 10,
+    fontWeight: '600',
+    letterSpacing: 0.3,
+  },
+  buildFingerprintHint: {
+    color: '#8CA8AD',
+    fontSize: 10,
+    letterSpacing: 0.2,
+    marginTop: 4,
+  },
+  buildFingerprintMeta: {
+    color: '#8CA8AD',
+    fontSize: 10,
+    letterSpacing: 0.2,
+    marginTop: 4,
   },
   configAlert: {
     width: '90%',
