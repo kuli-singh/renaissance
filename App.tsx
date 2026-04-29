@@ -107,7 +107,7 @@ const getDateStringFromTimestamp = (timestamp: string) => timestamp.split('T')[0
 
 const ENABLE_COMMITMENT_GATE = false;
 const ENABLE_BOTTLENECK_BANNER = false;
-const BUILD_LABEL = 'focus-b1';
+const BUILD_LABEL = 'focus-b2-transcribe';
 const FOCUS_HISTORY_DAYS = 7;
 const SPIRIT_ANIMAL_ICONS: Record<string, string> = {
   steady_turtle: '🐢',

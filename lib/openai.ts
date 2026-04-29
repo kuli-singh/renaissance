@@ -1,4 +1,5 @@
 import renaissanceConfig from '../src/config/renaissance.json';
+import { env, getSupabaseFunctionUrl } from './env';
 import { deriveStarterStep, deriveValueInsights } from './values';
 
 export interface ExtractedItem {
@@ -46,48 +47,82 @@ export interface GeneratedFocusRecommendation {
   values_summary: string;
 }
 
-const getApiKey = () => {
-  const key = process.env.EXPO_PUBLIC_OPENAI_API_KEY;
-  if (!key || key === 'your_openai_api_key_here') {
-    throw new Error('Please set EXPO_PUBLIC_OPENAI_API_KEY in .env');
+const AI_FUNCTION_NAME = 'openai';
+
+const getAudioUploadMetadata = (audioUri: string) => {
+  const sanitizedUri = audioUri.split('?')[0].toLowerCase();
+  const extension = sanitizedUri.includes('.') ? sanitizedUri.slice(sanitizedUri.lastIndexOf('.') + 1) : '';
+
+  switch (extension) {
+    case 'm4a':
+    case 'mp4':
+      return { name: `recording.${extension}`, type: 'audio/mp4' };
+    case 'caf':
+      return { name: 'recording.caf', type: 'audio/x-caf' };
+    case 'wav':
+      return { name: 'recording.wav', type: 'audio/wav' };
+    case 'mp3':
+      return { name: 'recording.mp3', type: 'audio/mpeg' };
+    case 'aac':
+      return { name: 'recording.aac', type: 'audio/aac' };
+    case '3gp':
+      return { name: 'recording.3gp', type: 'audio/3gpp' };
+    case 'amr':
+      return { name: 'recording.amr', type: 'audio/amr' };
+    default:
+      return { name: 'recording.m4a', type: 'audio/mp4' };
   }
-  return key;
+};
+
+const getAiFunctionHeaders = (includeJsonContentType = true): Record<string, string> => {
+  const headers: Record<string, string> = {
+    apikey: env.supabaseAnonKey,
+    Authorization: `Bearer ${env.supabaseAnonKey}`,
+  };
+
+  if (includeJsonContentType) {
+    headers['Content-Type'] = 'application/json';
+  }
+
+  return headers;
+};
+
+const parseJsonResponse = async <T>(response: Response): Promise<T> => {
+  if (!response.ok) {
+    const error = await response.text();
+    throw new Error(error || `AI function error (${response.status})`);
+  }
+
+  return response.json() as Promise<T>;
+};
+
+const invokeAiJson = async <T>(payload: Record<string, unknown>): Promise<T> => {
+  const response = await fetch(getSupabaseFunctionUrl(AI_FUNCTION_NAME), {
+    method: 'POST',
+    headers: getAiFunctionHeaders(),
+    body: JSON.stringify(payload),
+  });
+
+  return parseJsonResponse<T>(response);
 };
 
 // Generate 1536-dimension embedding using text-embedding-3-small
 export async function generateEmbedding(text: string): Promise<number[]> {
-  const apiKey = getApiKey();
-
-  const response = await fetch('https://api.openai.com/v1/embeddings', {
-    method: 'POST',
-    headers: {
-      'Authorization': `Bearer ${apiKey}`,
-      'Content-Type': 'application/json',
-    },
-    body: JSON.stringify({
-      model: 'text-embedding-3-small',
-      input: text,
-    }),
+  const data = await invokeAiJson<{ embedding: number[] }>({
+    action: 'embedding',
+    input: text,
   });
-
-  if (!response.ok) {
-    const error = await response.text();
-    console.error('Embedding API error:', error);
-    throw new Error(`Embedding API error: ${error}`);
-  }
-
-  const data = await response.json();
-  return data.data[0].embedding;
+  return data.embedding;
 }
 
 export async function transcribeAudio(audioUri: string): Promise<string> {
-  const apiKey = getApiKey();
   const formData = new FormData();
+  const metadata = getAudioUploadMetadata(audioUri);
 
   formData.append('file', {
     uri: audioUri,
-    type: 'audio/m4a',
-    name: 'recording.m4a',
+    type: metadata.type,
+    name: metadata.name,
   } as any);
   formData.append('model', 'whisper-1');
   formData.append('language', 'en'); // Force English - fixes Welsh misidentification
@@ -95,28 +130,25 @@ export async function transcribeAudio(audioUri: string): Promise<string> {
   // Add spelling hints from config to help Whisper recognize custom words
   const spellingHints = renaissanceConfig.spellingDictionary.join(', ');
   formData.append('prompt', spellingHints);
+  formData.append('action', 'transcribe');
 
-  const response = await fetch('https://api.openai.com/v1/audio/transcriptions', {
-    method: 'POST',
-    headers: {
-      'Authorization': `Bearer ${apiKey}`,
-    },
-    body: formData,
-  });
+  try {
+    const response = await fetch(getSupabaseFunctionUrl(AI_FUNCTION_NAME), {
+      method: 'POST',
+      headers: getAiFunctionHeaders(false),
+      body: formData,
+    });
 
-  if (!response.ok) {
-    const error = await response.text();
-    throw new Error(`Whisper API error: ${error}`);
+    const data = await parseJsonResponse<{ text: string }>(response);
+    return data.text;
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    throw new Error(`${message} [upload=${metadata.name} ${metadata.type}]`);
   }
-
-  const data = await response.json();
-  return data.text;
 }
 
 // The Strategist: Blunt but supportive categorization with GPT-4o-mini
 export async function processWithStrategist(transcription: string): Promise<ExtractedItem[]> {
-  const apiKey = getApiKey();
-
   const systemPrompt = `You are the "Renaissance Strategist" - a blunt but supportive high-level personal assistant for "The Steady Turtle."
 
 Your job: Cut through the noise. Categorize thoughts. Connect them to growth.
@@ -147,29 +179,16 @@ RULES:
 Return ONLY a JSON array:
 [{"title": "concise title", "type": "category", "energy": "level", "strategic_insight": "blunt 1-sentence insight", "suggest_commitment": false, "commitment_reasoning": null}]`;
 
-  const response = await fetch('https://api.openai.com/v1/chat/completions', {
-    method: 'POST',
-    headers: {
-      'Authorization': `Bearer ${apiKey}`,
-      'Content-Type': 'application/json',
-    },
-    body: JSON.stringify({
-      model: 'gpt-4o-mini',
-      messages: [
-        { role: 'system', content: systemPrompt },
-        { role: 'user', content: transcription },
-      ],
-      temperature: 0.7,
-    }),
+  const data = await invokeAiJson<{ content: string }>({
+    action: 'chat',
+    model: 'gpt-4o-mini',
+    messages: [
+      { role: 'system', content: systemPrompt },
+      { role: 'user', content: transcription },
+    ],
+    temperature: 0.7,
   });
-
-  if (!response.ok) {
-    const error = await response.text();
-    throw new Error(`Strategist API error: ${error}`);
-  }
-
-  const data = await response.json();
-  const content = data.choices[0]?.message?.content || '[]';
+  const content = data.content || '[]';
 
   try {
     const jsonMatch = content.match(/\[[\s\S]*\]/);
@@ -226,8 +245,6 @@ export async function generateDailyMirror(entries: {
     return "Yesterday was quiet. Treat that as data, not failure. Pick one deliberate move for today.";
   }
 
-  const apiKey = getApiKey();
-
   const daySummary = entries
     .map((entry, i) => {
       const detail = entry.content || entry.insight || entry.title;
@@ -235,13 +252,9 @@ export async function generateDailyMirror(entries: {
     })
     .join('\n');
 
-  const response = await fetch('https://api.openai.com/v1/chat/completions', {
-    method: 'POST',
-    headers: {
-      'Authorization': `Bearer ${apiKey}`,
-      'Content-Type': 'application/json',
-    },
-    body: JSON.stringify({
+  try {
+    const data = await invokeAiJson<{ content: string }>({
+      action: 'chat',
       model: 'gpt-4o-mini',
       messages: [
         {
@@ -259,17 +272,13 @@ Use the full day, not just vents. Be direct, humane, and specific. Do not sound 
       ],
       temperature: 0.8,
       max_tokens: 220,
-    }),
-  });
+    });
 
-  if (!response.ok) {
-    const error = await response.text();
+    return data.content || "Your feelings are valid. Now, what's next?";
+  } catch (error) {
     console.error('Morning Mirror generation error:', error);
     return "Yesterday happened. Today's a new shot.";
   }
-
-  const data = await response.json();
-  return data.choices[0]?.message?.content || "Your feelings are valid. Now, what's next?";
 }
 
 export const buildFocusRecommendationPrompt = (context: FocusRecommendationContext) => {
@@ -342,16 +351,12 @@ For the starter step, prefer the smallest visible action. Example pattern: "${co
 export async function generateFocusRecommendation(
   context: FocusRecommendationContext
 ): Promise<GeneratedFocusRecommendation | null> {
-  const apiKey = getApiKey();
   const { systemPrompt, userPrompt, valuesSummary } = buildFocusRecommendationPrompt(context);
+  let content = '{}';
 
-  const response = await fetch('https://api.openai.com/v1/chat/completions', {
-    method: 'POST',
-    headers: {
-      Authorization: `Bearer ${apiKey}`,
-      'Content-Type': 'application/json',
-    },
-    body: JSON.stringify({
+  try {
+    const data = await invokeAiJson<{ content: string }>({
+      action: 'chat',
       model: 'gpt-4o-mini',
       messages: [
         { role: 'system', content: systemPrompt },
@@ -359,17 +364,12 @@ export async function generateFocusRecommendation(
       ],
       temperature: 0.7,
       max_tokens: 260,
-    }),
-  });
-
-  if (!response.ok) {
-    const error = await response.text();
+    });
+    content = data.content || '{}';
+  } catch (error) {
     console.error('Focus recommendation generation error:', error);
     return null;
   }
-
-  const data = await response.json();
-  const content = data.choices[0]?.message?.content || '{}';
 
   try {
     const jsonMatch = content.match(/\{[\s\S]*\}/);
